@@ -216,29 +216,27 @@ class NostrPoster:
             return False
 
     def generate_content(self, llm) -> str:
-        """Generate content using LLM"""
+        """Generate content - curated facts (LLM-free for better quality)"""
 
-        prompt = """Output ONLY the text for a tweet. No explanation. No quotes. Exactly 100-120 characters.
+        import random
 
-Examples of good output:
-- "Your LN node earns ~1% APR on inbound liquidity. 1M sats = ~10k sats/year passive."
-- "Most LN nodes have 0 channels. The top 10% control 90% of liquidity. Be in the top 10%."
-- "Myth: LN isn't real Bitcoin. Reality: LN txs are Bitcoin txs with 2-of-2 multisig. Same security."
-- "Tip: Don't close channels when fees spike. Wait for fee drops. Saved 50% last cycle."
+        facts = [
+            "Your LN node earns ~1% APR on inbound liquidity. 1M sats = ~10k sats/year passive.",
+            "Most LN nodes have 0 channels. The top 10% control 90% of liquidity. Be in the top 10%.",
+            "Myth: LN isn't real Bitcoin. Reality: LN txs are Bitcoin txs with 2-of-2 multisig. Same security.",
+            "Tip: Don't close channels when fees spike. Wait for fee drops. Saved 50% last cycle.",
+            "A single LN node routed $1M in a day. Not whales - just a well-connected node.",
+            "LN has 15K+ nodes now. Growth 10x since 2021. This is adoption.",
+            "Zebedee LP earns 4% APY on sats in games. Risk: counterparty. Return: better than TradFi.",
+            "The average LN payment is ~$12. Coffee money at scale. That's the point.",
+            "Running a node costs ~$5/month. Earn 10k sats/month routing = profit in 3 months.",
+            "LN can't rug you - worst case you wait for timeout. Your coins are always recoverable.",
+            "Phoenix Wallet auto-queues payments. You don't even know you're on Lightning.",
+            "LN invoices expire. Always request fresh invoice for big amounts. Old = lost funds.",
+            "Stacker News zaps go through LN. Earn sats for posting. Free money for Bitcoin content.",
+        ]
 
-Generate one original Lightning Network fact/tip in this style:"""
-
-        content = llm.generate(prompt, max_tokens=60)
-
-        content = content.strip()
-
-        if content.startswith('"') and content.endswith('"'):
-            content = content[1:-1]
-
-        if len(content) > 120:
-            content = content[:117] + "..."
-
-        return content
+        return random.choice(facts)
 
     def notify(self, balance: int, action: str, result: str) -> bool:
         """Send run notification to Nostr"""
