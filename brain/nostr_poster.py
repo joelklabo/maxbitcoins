@@ -210,6 +210,11 @@ class NostrPoster:
                 try:
                     ws = websocket.create_connection(relay, timeout=10)
                     ws.send(json.dumps(["EVENT", event_data["event"]]))
+
+                    # Wait for OK response
+                    response = ws.recv()
+                    logger.info(f"Relay {relay} response: {response}")
+
                     ws.close()
                     logger.info(f"Posted to {relay}")
                 except Exception as e:
@@ -269,6 +274,8 @@ Keep it under 280 characters. Be informative and friendly. Topic: {topic}"""
                 try:
                     ws = websocket.create_connection(relay, timeout=10)
                     ws.send(json.dumps(["EVENT", event_data["event"]]))
+                    response = ws.recv()
+                    logger.info(f"Relay {relay} response: {response}")
                     ws.close()
                 except Exception as e:
                     logger.warning(f"Failed to notify via {relay}: {e}")
