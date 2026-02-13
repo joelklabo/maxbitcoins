@@ -486,6 +486,7 @@ Do deep analysis. Consider: balance trends, what's worked before, current Lightn
                 "browser",
                 "--model",
                 "gpt-5.2-pro",
+                "--force",  # Allow new session even if same prompt exists
                 "--prompt",
                 oracle_prompt,
                 "--file",
@@ -495,7 +496,11 @@ Do deep analysis. Consider: balance trends, what's worked before, current Lightn
                 "--file",
                 "main.py",
                 "--file",
-                "README.md",
+                "Dockerfile",
+                "--file",
+                "requirements.txt",
+                "--file",
+                "infra/",
             ]
 
             # Add remote host if configured
@@ -505,12 +510,13 @@ Do deep analysis. Consider: balance trends, what's worked before, current Lightn
                     cmd.extend(["--remote-token", self.config.oracle_remote_token])
 
             # Timeout: 1 hour (oracle can take that long)
-            logger.info(f"Calling oracle with files: brain/, data/, main.py, README.md")
+            logger.info(f"Calling oracle with full codebase...")
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=3600,  # 1 hour timeout for oracle
+                timeout=3600,
+                cwd="/home/klabo/maxbitcoins",
             )
 
             logger.info(f"Oracle CLI completed in {time.time() - oracle_start:.1f}s")
