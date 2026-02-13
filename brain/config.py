@@ -79,7 +79,7 @@ class Config:
             cf_api_token=os.getenv("CF_API_TOKEN", ""),
             # LLM Providers
             minimax_api_key=minimax_key,
-            minimax_model=os.getenv("MINIMAX_MODEL", "MiniMax-M2.1"),
+            minimax_model=os.getenv("MINIMAX_MODEL", "MiniMax-M2.5"),
             zai_api_key=zai_key,
             zai_model=os.getenv("ZAI_MODEL", "glm-4-flash"),
             ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
