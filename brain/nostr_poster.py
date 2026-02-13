@@ -21,11 +21,21 @@ DATA_DIR = Path("/data")
 RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net"]
 
 
-def _nsec_to_hex(nsec: str) -> str:
+def _nsec_to_hex(nsec: str) -> "str | None":
     """Convert nsec1 bech32 to hex"""
-    hrp, data = bech32.decode("nsec", nsec)
-    conv = bech32.convertbits(data, 5, 8, False)
-    return bytes(conv).hex()
+    try:
+        hrp, data = bech32.decode("nsec", nsec)
+        if data is None:
+            logger.warning(f"Failed to decode nsec: {nsec[:20]}...")
+            return None
+        conv = bech32.convertbits(data, 5, 8, False)
+        if conv is None:
+            logger.warning("Failed to convert bits")
+            return None
+        return bytes(conv).hex()
+    except Exception as e:
+        logger.warning(f"Error converting nsec: {e}")
+        return None
 
 
 class NostrPoster:
@@ -47,11 +57,16 @@ class NostrPoster:
                 key = self.config.nostr_private_key
                 if key.startswith("nsec1"):
                     key = _nsec_to_hex(key)
-                    logger.info("Converted nsec1 to hex")
-                priv_bytes = bytes.fromhex(key)
-                self._privkey = secp256k1.PrivateKey(priv_bytes)
-                self._pubkey = self._privkey.pubkey.serialize()[1:]
-                logger.info("Nostr posting ENABLED")
+                    if key is None:
+                        logger.warning("nsec conversion failed, posting disabled")
+                        self.enabled = False
+                    else:
+                        logger.info("Converted nsec1 to hex")
+                if key and not key.startswith("nsec1"):
+                    priv_bytes = bytes.fromhex(key)
+                    self._privkey = secp256k1.PrivateKey(priv_bytes)
+                    self._pubkey = self._privkey.pubkey.serialize()[1:]
+                    logger.info("Nostr posting ENABLED")
             except Exception as e:
                 logger.error(f"Failed to derive pubkey: {e}")
                 self.enabled = False
