@@ -451,6 +451,7 @@ Respond ONLY with the prompt, nothing else."""
             logger.info(
                 f"Generated detailed prompt in {time.time() - prompt_gen_start:.1f}s ({len(generated_prompt)} chars)"
             )
+            logger.info(f"Generated prompt:\n{generated_prompt[:500]}...")
         except Exception as e:
             logger.error(f"Prompt generation failed: {e}")
             generated_prompt = None
@@ -511,7 +512,7 @@ Do deep analysis. Consider: balance trends, what's worked before, current Lightn
 
             logger.info(f"Oracle CLI completed in {time.time() - oracle_start:.1f}s")
             logger.info(
-                f"Oracle stdout: {result.stdout[:500] if result.stdout else 'empty'}"
+                f"Oracle stdout: {result.stdout[:2000] if result.stdout else 'empty'}"
             )
 
             # Check for errors
