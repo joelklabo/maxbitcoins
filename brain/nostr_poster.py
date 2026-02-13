@@ -218,21 +218,22 @@ class NostrPoster:
     def generate_content(self, llm) -> str:
         """Generate content using LLM"""
 
-        prompts = [
-            "Give me one specific Lightning Network stat that's surprising. Example: 'A single LN node once routed $1M in a day.' Keep under 120 chars. Start with a number or specific fact.",
-            "Tell me one counter-intuitive Lightning tip. Example: 'Closing channels when fees are low is actually dumb - you lose routing opportunities.' Under 120 chars.",
-            "Share one Lightning myth and why it's wrong. Example: 'Myth: LN isn't secure. Reality: It's Bitcoin base layer security + additional timeout risks.' Under 120 chars.",
-            "What's one thing most people get wrong about Lightning? Example: 'Most think LN is a separate chain - it's actually a smart contract system on Bitcoin.' Under 120 chars.",
-            "One specific Lightning earning opportunity. Example: 'LPing on Zebedee earns 4% APY on sats in games.' Under 120 chars.",
-        ]
+        prompt = """Output ONLY the text for a tweet. No explanation. No quotes. Exactly 100-120 characters.
 
-        import random
+Examples of good output:
+- "Your LN node earns ~1% APR on inbound liquidity. 1M sats = ~10k sats/year passive."
+- "Most LN nodes have 0 channels. The top 10% control 90% of liquidity. Be in the top 10%."
+- "Myth: LN isn't real Bitcoin. Reality: LN txs are Bitcoin txs with 2-of-2 multisig. Same security."
+- "Tip: Don't close channels when fees spike. Wait for fee drops. Saved 50% last cycle."
 
-        prompt = random.choice(prompts)
+Generate one original Lightning Network fact/tip in this style:"""
 
-        content = llm.generate(prompt, max_tokens=80)
+        content = llm.generate(prompt, max_tokens=60)
 
         content = content.strip()
+
+        if content.startswith('"') and content.endswith('"'):
+            content = content[1:-1]
 
         if len(content) > 120:
             content = content[:117] + "..."
