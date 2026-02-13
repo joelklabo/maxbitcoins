@@ -385,6 +385,10 @@ class BrowserOracle:
 
     def ask(self, context: dict, history: list = None) -> str:
         """Ask for strategic advice using browser discovery"""
+        import time
+
+        start = time.time()
+
         if not self.is_available():
             logger.warning("Browser Oracle not available")
             return ""
@@ -393,12 +397,17 @@ class BrowserOracle:
 
         # Discover opportunities via browser
         opportunities = self.browser.discover_all()
-        logger.info(f"Discovered {opportunities.get('total_found', 0)} opportunities")
+        logger.info(
+            f"Discovered {opportunities.get('total_found', 0)} opportunities in {time.time() - start:.1f}s"
+        )
 
         # Try to use LLM to analyze
+        llm_start = time.time()
         try:
             prompt = self._build_prompt(context, history, opportunities)
+            logger.info(f"Sending to MiniMax (prompt length: {len(prompt)} chars)...")
             response = self.llm.generate(prompt, max_tokens=500)
+            logger.info(f"MiniMax response in {time.time() - llm_start:.1f}s")
         except Exception as e:
             logger.error(f"LLM analysis failed: {e}")
             response = ""
