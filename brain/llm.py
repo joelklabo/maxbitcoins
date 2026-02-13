@@ -507,10 +507,10 @@ Do deep analysis. Consider: balance trends, what's worked before, current Lightn
             # Timeout: 1 hour (oracle can take that long)
             logger.info(f"Calling oracle with files: brain/, data/, main.py, README.md")
             result = subprocess.run(
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=3600,  # 1 hour timeout for oracle
-                cwd="/home/klabo/maxbitcoins",
             )
 
             logger.info(f"Oracle CLI completed in {time.time() - oracle_start:.1f}s")
