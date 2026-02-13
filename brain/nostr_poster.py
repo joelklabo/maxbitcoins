@@ -215,10 +215,7 @@ class NostrPoster:
         # Try using websocket
         try:
             event_data = self._create_event(content)
-
-            # Debug: log what's being sent
-            msg = json.dumps(["EVENT", event_data["event"]])
-            logger.debug(f"Sending Nostr event: {msg[:200]}...")
+            success = True
 
             for relay in RELAYS:
                 try:
@@ -229,13 +226,22 @@ class NostrPoster:
                     response = ws.recv()
                     logger.info(f"Relay {relay} response: {response}")
 
+                    # Check if relay accepted
+                    if "false" in response.lower():
+                        logger.warning(f"Relay {relay} rejected: {response}")
+                        success = False
+
                     ws.close()
                     logger.info(f"Posted to {relay}")
                 except Exception as e:
                     logger.warning(f"Failed to post to {relay}: {e}")
 
-            logger.info(f"Posted to Nostr: {content[:50]}...")
-            return True
+            if success:
+                logger.info(f"Posted to Nostr: {content[:50]}...")
+                return True
+            else:
+                logger.warning("All relays rejected the event")
+                return False
 
         except Exception as e:
             logger.error(f"Error posting to Nostr: {e}")
