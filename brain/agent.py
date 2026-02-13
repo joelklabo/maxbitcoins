@@ -64,12 +64,19 @@ class Agent:
         """Step 2: Maintain owned services"""
         logger.info("Maintaining infrastructure...")
 
-        # Check Ollama
-        ollama_available = self.llm.is_available()
+        # Check LLM providers
+        llm_available = self.llm.is_available()
+        provider_name = self.llm.provider_name()
 
-        if ollama_available:
-            models = self.llm.list_models()
-            logger.info(f"Ollama available: {models}")
+        if llm_available:
+            logger.info(f"LLM available: {provider_name}")
+
+            # Get Ollama models if that's the provider
+            if provider_name == "ollama" and self.llm.current_provider:
+                provider = self.llm.current_provider
+                if hasattr(provider, "list_models"):
+                    models = provider.list_models()
+                    logger.info(f"Ollama models: {models}")
 
         # Check services
         health = self.services.check_all()
@@ -78,7 +85,8 @@ class Agent:
         blog_status = self.blog.check_tips_working()
 
         return {
-            "ollama_available": ollama_available,
+            "llm_available": llm_available,
+            "llm_provider": provider_name,
             "services_healthy": health,
             "blog_tips": blog_status,
         }
