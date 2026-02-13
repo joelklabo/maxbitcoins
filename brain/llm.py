@@ -79,8 +79,15 @@ class MiniMaxProvider(LLMProvider):
                 for item in content:
                     if item.get("type") == "text":
                         return item.get("text", "").strip()
+                # If no text found, extract from thinking (MiniMax sometimes only returns thinking)
+                for item in content:
+                    if item.get("type") == "thinking":
+                        thinking = item.get("thinking", "")
+                        # Extract the actual response from thinking
+                        if thinking:
+                            return thinking.strip()
                 logger.warning(
-                    f"No text type found in MiniMax response content: {content}"
+                    f"No text or thinking found in MiniMax response: {content}"
                 )
                 return ""
 
@@ -253,6 +260,10 @@ class OracleProvider(LLMProvider):
                 for item in content:
                     if item.get("type") == "text":
                         return item.get("text", "").strip()
+                # Fallback to thinking if no text
+                for item in content:
+                    if item.get("type") == "thinking":
+                        return item.get("thinking", "").strip()
                 return ""
 
             logger.warning(f"Oracle request failed: {resp.status_code}")
