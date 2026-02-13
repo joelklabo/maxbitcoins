@@ -1,34 +1,23 @@
 """
 Nostr posting for MaxBitcoins
+SAFETY: Auto-posting is DISABLED by default. Set NOSTR_ENABLED=true to enable.
 """
 
 import logging
-import requests
+import json
+import os
+import time
+import hashlib
 from datetime import datetime
 from pathlib import Path
-import json
-import hashlib
 import secp256k1
-import bech32
-import time
+import websocket
 from brain.config import Config
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path("/data")
 RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net"]
-
-
-def decode_nsec(nsec: str) -> bytes:
-    """Decode nsec (bech32) to hex bytes"""
-    # Remove nsec1 prefix
-    if nsec.startswith("nsec1"):
-        nsec = nsec[5:]
-    # Decode bech32
-    _, data = bech32.bech32_decode(nsec)
-    if data is None:
-        raise ValueError("Invalid nsec")
-    return bytes(bech32.convertbits(data, 5, 8, False))
 
 
 class NostrPoster:
@@ -38,15 +27,32 @@ class NostrPoster:
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         self._load_state()
 
-        # Derive public key from private
+        # SAFETY: Check if posting is enabled
+        self.enabled = os.getenv("NOSTR_ENABLED", "false").lower() == "true"
+
+        # Derive public key from private - requires raw hex format (not nsec1 bech32)
         self._pubkey = None
-        if self.config.nostr_private_key:
+        self._privkey = None
+
+        if self.enabled and self.config.nostr_private_key:
             try:
-                priv_bytes = decode_nsec(self.config.nostr_private_key)
-                self._privkey = secp256k1.PrivateKey(priv_bytes)
-                self._pubkey = self._privkey.pubkey.serialize()[1:]  # 32 bytes
+                key = self.config.nostr_private_key
+                if key.startswith("nsec1"):
+                    logger.warning(
+                        "nsec1 format not supported - need hex format. Posting disabled."
+                    )
+                    self.enabled = False
+                else:
+                    priv_bytes = bytes.fromhex(key)
+                    self._privkey = secp256k1.PrivateKey(priv_bytes)
+                    self._pubkey = self._privkey.pubkey.serialize()[1:]
+                    logger.info("Nostr posting ENABLED")
             except Exception as e:
                 logger.error(f"Failed to derive pubkey: {e}")
+                self.enabled = False
+
+        if not self.enabled:
+            logger.info("Nostr posting disabled (set NOSTR_ENABLED=true to enable)")
 
     def _load_state(self):
         """Load posting state"""
@@ -72,6 +78,8 @@ class NostrPoster:
 
     def can_post(self) -> bool:
         """Check if we can post today"""
+        if not self.enabled:
+            return False
         self._reset_daily()
         return self.state.get("posts_today", 0) < 3
 
@@ -95,7 +103,7 @@ class NostrPoster:
 
         # Build event data
         event = [
-            0,  # kind 0 - temporary
+            0,  # id (to be filled)
             created_at,
             1,  # kind 1 - text note
             [],  # tags
@@ -118,15 +126,16 @@ class NostrPoster:
 
     def post_note(self, content: str) -> bool:
         """Post a note to Nostr"""
-        if not self.config.nostr_private_key or not self._pubkey:
-            logger.warning("No Nostr private key configured")
+        if not self.enabled:
+            logger.warning("Nostr posting is disabled")
+            return False
+
+        if not self._pubkey or not self._privkey:
+            logger.warning("No Nostr key configured")
             return False
 
         try:
             event_data = self._create_event(content)
-
-            # Publish to relays
-            import websocket
 
             for relay in RELAYS:
                 try:
