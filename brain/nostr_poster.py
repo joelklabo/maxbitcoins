@@ -8,6 +8,7 @@ import json
 import os
 import time
 import hashlib
+import subprocess
 from datetime import datetime
 from pathlib import Path
 import secp256k1
@@ -193,6 +194,32 @@ class NostrPoster:
 
         return {"id": id_hash, "event": event}
 
+    def _post_with_nak(self, content: str) -> bool:
+        """Post using nak CLI (more reliable)"""
+        if not self.enabled:
+            return False
+
+        nsec = self.config.nostr_private_key
+        if not nsec:
+            return False
+
+        try:
+            result = subprocess.run(
+                ["nak", "event", "-c", content, "--sec", nsec] + RELAYS,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if "success" in result.stdout or result.returncode == 0:
+                logger.info(f"Posted via nak: {content[:30]}...")
+                return True
+            else:
+                logger.warning(f"nak failed: {result.stderr}")
+                return False
+        except Exception as e:
+            logger.warning(f"Error using nak: {e}")
+            return False
+
     def post_note(self, content: str) -> bool:
         """Post a note to Nostr"""
         if not self.enabled:
@@ -203,6 +230,11 @@ class NostrPoster:
             logger.warning("No Nostr key configured")
             return False
 
+        # Try using nak first (more reliable)
+        if self._post_with_nak(content):
+            return True
+
+        # Fallback to manual WebSocket
         try:
             event_data = self._create_event(content)
 
@@ -267,6 +299,12 @@ Keep it under 280 characters. Be informative and friendly. Topic: {topic}"""
 
         content = f"{emoji} MaxBitcoins: {balance:,} sats | {action} | {result[:60]}"
 
+        # Try using nak first
+        if self._post_with_nak(content):
+            logger.info(f"Nostr notification sent: {content[:50]}...")
+            return True
+
+        # Fallback to manual WebSocket
         try:
             event_data = self._create_event(content)
 
