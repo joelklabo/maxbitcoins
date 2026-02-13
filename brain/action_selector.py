@@ -46,141 +46,116 @@ class ActionSelector:
         return True
 
     def select_action(self) -> dict:
-        """Select the best action to take"""
+        """Select the best action to take - give full context to LLM and let it decide"""
         logger.info(f"Oracle enabled: {self.config.use_oracle}")
 
-        # If oracle is enabled, ask it for advice and EXECUTE whatever it says
+        # Build full context
+        context = self._build_context()
+
+        # Build the strategic prompt (same for both oracle and direct MiniMax)
+        prompt = self._build_strategic_prompt(context)
+
+        # If oracle is enabled, ask it first, then give its response to MiniMax
         if self.config.use_oracle:
-            history = self.revenue.load_history()
-            recent_learnings = self.learnings.get_recent(10)
-            oracle_suggestion = self.llm.ask_oracle(
-                {
-                    "balance": self.revenue.get_balance(),
-                    "daily_revenue": self.revenue.get_stats().get("daily_revenue", 0),
-                    "last_action": self.revenue.get_stats().get("last_action", "none"),
-                    "failed_count": self.nostr.get_failed_count()
-                    + self.blog.get_failed_count()
-                    + self.email.get_failed_count(),
-                },
-                history=history,
-                learnings=recent_learnings,
-            )
+            logger.info("Asking Oracle for strategic advice...")
+            oracle_suggestion = self.llm.ask_oracle(context)
 
             if oracle_suggestion:
-                logger.info(f"Oracle suggested: {oracle_suggestion[:500]}...")
+                logger.info(f"Oracle strategic analysis: {oracle_suggestion[:500]}...")
 
-                # Execute whatever Oracle says - give full control to MiniMax
+                # Give Oracle's analysis to MiniMax to execute
                 return {
                     "action": "oracle_execution",
-                    "execute": lambda: self._execute_oracle_suggestion(
-                        oracle_suggestion
-                    ),
+                    "execute": lambda: self._execute_suggestion(oracle_suggestion),
                     "oracle_suggestion": oracle_suggestion,
                 }
 
-        # Fallback if no oracle
-        return self._default_action()
+        # No oracle - give prompt directly to MiniMax and let it decide
+        logger.info("No Oracle - asking MiniMax directly what to do...")
+        return {
+            "action": "llm_decision",
+            "execute": lambda: self._execute_suggestion(prompt),
+            "prompt": prompt,
+        }
 
-    def _execute_oracle_suggestion(self, suggestion: str) -> dict:
-        """Execute whatever Oracle suggests using MiniMax"""
-        logger.info(f"Executing Oracle suggestion: {suggestion[:200]}...")
+    def _build_context(self) -> dict:
+        """Build full context for strategic decisions"""
+        history = self.revenue.load_history()
+        stats = self.revenue.get_stats()
 
-        # Ask MiniMax to execute the suggestion
-        system = """You are MaxBitcoins execution engine. You have full control to take ANY action to earn Bitcoin. 
-        
-You have access to:
+        return {
+            "balance": self.revenue.get_balance(),
+            "daily_revenue": stats.get("daily_revenue", 0),
+            "total_earned": stats.get("total_earned", 0),
+            "last_action": stats.get("last_action", "none"),
+            "history": history[-20:],  # Last 20 runs
+            "learnings": self.learnings.get_recent(10),
+            "failed_counts": {
+                "nostr": self.nostr.get_failed_count(),
+                "blog": self.blog.get_failed_count(),
+                "email": self.email.get_failed_count(),
+            },
+        }
+
+    def _build_strategic_prompt(self, context: dict) -> str:
+        """Build the strategic prompt with full context"""
+        import json
+
+        return f"""You are MaxBitcoins Strategic Advisor. Your job is to figure out how to earn more Bitcoin.
+
+## Current State
+- Balance: {context.get("balance", 0)} sats
+- Today's revenue: {context.get("daily_revenue", 0)} sats
+- Total earned: {context.get("total_earned", 0)} sats
+- Last action: {context.get("last_action", "none")}
+
+## Recent History (last 20 runs)
+{json.dumps(context.get("history", []), indent=2)}
+
+## Strategic Learnings (what worked/failed before)
+{json.dumps(context.get("learnings", []), indent=2)}
+
+## Failed Action Counts
+{json.dumps(context.get("failed_counts", {}), indent=2)}
+
+## Your Task
+Analyze the situation and tell me EXACTLY what to do right now to earn more Bitcoin.
+
+You have full access to:
 - Nostr posting (beeminder can zap)
-- Blog improvement 
+- Blog improvement  
 - Email outreach
 - Browser for discovery
 - Full codebase at /home/klabo/code/maxbitcoins/
+- Execute shell commands
 
-Execute whatever the user requests. If it requires code changes, make them. If it requires posting somewhere, do it. 
-Just get it done and report what you did."""
+Be creative. Think about what's actually worked in the past. Look for new opportunities.
+If there's nothing good to do, say "monitor" and explain why.
+
+Give me a specific action to take right now. Not a plan - an action."""
+
+    def _execute_suggestion(self, suggestion: str) -> dict:
+        """Execute whatever the LLM suggests"""
+        logger.info(f"Executing suggestion: {suggestion[:200]}...")
+
+        system = """You are MaxBitcoins execution engine. You have full control to take ANY action to earn Bitcoin. 
+
+You have access to:
+- Nostr posting
+- Blog improvement
+- Email outreach  
+- Browser for discovery
+- Full codebase at /home/klabo/code/maxbitcoins/
+- Execute shell commands with subprocess
+
+Execute the suggestion. If it requires code changes, make them. If it requires posting somewhere, do it.
+Just get it done and report what you did in detail."""
 
         result = self.llm.generate(suggestion, system=system, max_tokens=2000)
 
         if result:
-            logger.info(f"MiniMax execution result: {result[:500]}...")
+            logger.info(f"Execution result: {result[:500]}...")
             return {"result": "executed", "output": result}
         else:
-            logger.error("MiniMax failed to execute")
+            logger.error("LLM failed to execute")
             return {"result": "failed", "reason": "llm_failed"}
-
-    def _default_action(self) -> dict:
-        """Default action priority when oracle is disabled"""
-        # Priority order: Nostr -> Blog -> Email -> Monitor
-
-        # Check Nostr
-        if self.nostr.can_post() and self.nostr.get_failed_count() < 2:
-            return {
-                "action": "nostr_post",
-                "execute": self._do_nostr_post,
-            }
-
-        # Check Blog
-        if self.blog.can_post() and self.blog.get_failed_count() < 2:
-            return {
-                "action": "blog_improve",
-                "execute": self._do_blog_improve,
-            }
-
-        # Check Email
-        lead = self.email.get_next_lead()
-        if lead and self.email.can_send() and self.email.get_failed_count() < 2:
-            return {
-                "action": "email_outreach",
-                "execute": lambda: self._do_email(lead),
-                "lead": lead,
-            }
-
-        # Nothing we can do
-        logger.info("All action limits reached or failed, monitoring only")
-        return {"action": "monitor", "execute": lambda: {"result": "no_action_needed"}}
-
-    def _do_nostr_post(self) -> dict:
-        """Post to Nostr"""
-        logger.info("Posting to Nostr...")
-
-        # Generate content
-        content = self.nostr.generate_content(self.llm)
-
-        if not content:
-            self.nostr.record_post(False)
-            return {"result": "failed", "reason": "no_content"}
-
-        # Post
-        success = self.nostr.post_note(content)
-
-        if success:
-            return {"result": "posted", "content": content[:100]}
-        else:
-            return {"result": "failed", "reason": "post_failed"}
-
-    def _do_blog_improve(self) -> dict:
-        """Improve blog"""
-        logger.info("Improving blog...")
-
-        result = self.blog.improve_blog()
-        return result
-
-    def _do_email(self, lead: dict) -> dict:
-        """Send outreach email"""
-        logger.info(f"Sending email to {lead['name']}...")
-
-        result = self.email.send_email(lead, self.llm)
-        return result
-
-    def _do_browser_discover(self) -> dict:
-        """Use browser to discover and act on opportunities"""
-        logger.info("Discovering opportunities via browser...")
-
-        from brain.browser_discovery import BrowserDiscovery
-
-        browser = BrowserDiscovery(self.config)
-        opportunities = browser.discover_all()
-
-        return {
-            "result": "discovered",
-            "opportunities": opportunities,
-        }
