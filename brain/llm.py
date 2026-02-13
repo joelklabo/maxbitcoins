@@ -487,6 +487,11 @@ IMPORTANT: Write as much detail as possible - this will be saved and learned fro
             # Now run oracle with the session (use --session flag)
             cmd.extend(["--session", oracle_session])
 
+            # Clear any env vars that might interfere with our own browser
+            clean_env = os.environ.copy()
+            clean_env.pop("ORACLE_REMOTE_HOST", None)
+            clean_env.pop("ORACLE_REMOTE_TOKEN", None)
+
             # Timeout: 1 hour (oracle can take that long)
             logger.info(f"Calling oracle with full codebase...")
 
@@ -496,6 +501,7 @@ IMPORTANT: Write as much detail as possible - this will be saved and learned fro
                 text=True,
                 timeout=3600,
                 cwd="/home/klabo/maxbitcoins",
+                env=clean_env,
             )
 
             logger.info(f"Oracle CLI completed in {time.time() - oracle_start:.1f}s")
