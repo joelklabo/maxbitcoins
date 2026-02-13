@@ -471,11 +471,26 @@ IMPORTANT: Write as much detail as possible - this will be saved and learned fro
                 "infra/",
             ]
 
-            # Add remote host if configured
-            if self.config.oracle_remote_host:
-                cmd.extend(["--remote-host", self.config.oracle_remote_host])
-                if self.config.oracle_remote_token:
-                    cmd.extend(["--remote-token", self.config.oracle_remote_token])
+            # Start dedicated Chrome for Oracle on port 9477
+            oracle_chrome_port = "9477"
+            logger.info(f"Starting Chrome on port {oracle_chrome_port}...")
+            chrome_proc = subprocess.Popen(
+                [
+                    "chromium",
+                    f"--remote-debugging-port={oracle_chrome_port}",
+                    "--headless",
+                    "--no-sandbox",
+                    "--disable-gpu",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            time.sleep(3)  # Wait for Chrome to start
+
+            # Add browser port to oracle command
+            cmd.extend(["--browser-port", oracle_chrome_port])
+
+            # Note: Using local Chrome, not remote host
 
             # Timeout: 1 hour (oracle can take that long)
             logger.info(f"Calling oracle with full codebase...")
@@ -527,6 +542,14 @@ IMPORTANT: Write as much detail as possible - this will be saved and learned fro
             logger.error("Oracle timed out after 1 hour")
         except Exception as e:
             logger.error(f"Oracle error: {e}")
+        finally:
+            # Cleanup Chrome process
+            try:
+                chrome_proc.terminate()
+                chrome_proc.wait(timeout=5)
+                logger.info("Chrome process terminated")
+            except:
+                pass
 
         # Fallback 1: Try MiniMax if oracle failed
         logger.info("Falling back to MiniMax...")
