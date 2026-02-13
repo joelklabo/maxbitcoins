@@ -413,22 +413,12 @@ class BrowserOracle:
         prompt_gen_start = time.time()
         prompt_gen_system = """You are a prompt engineering expert. Your job is to create extremely detailed, useful prompts for a strategic AI assistant (GPT-5.2 Pro) that will analyze opportunities and make recommendations for an autonomous Bitcoin-earning agent."""
 
-        prompt_gen_user = f"""The agent has access to these files from the codebase:
-- brain/agent.py - Main agent loop
-- brain/action_selector.py - Decides what action to take
-- brain/llm.py - LLM providers (MiniMax, Ollama, Oracle)
-- brain/browser_discovery.py - Browser-based opportunity discovery
-- brain/revenue_tracker.py - Tracks earnings history
-- brain/strategic_learnings.py - Stores learnings
-- brain/blog_improver.py - Blog improvement
-- brain/email_sender.py - Email outreach
-
-Current state:
+        prompt_gen_user = f"""Current state of the MaxBitcoins autonomous agent:
 - Balance: {context.get("balance", 0)} sats
 - Today's revenue: {context.get("daily_revenue", 0)} sats
 - Last action: {context.get("last_action", "none")}
 
-History:
+History (last 10 runs):
 {json.dumps(history[-10:] if history else [], indent=2)}
 
 Opportunities found:
@@ -436,43 +426,18 @@ Opportunities found:
 
 Available actions: nostr_post, blog_improve, email_outreach, browser_discover, monitor
 
-Based on the codebase and current state, what is the BEST question I should ask you (the strategic AI) to help this agent earn more Bitcoin? Think about:
-- What's missing from the current strategy?
-- What would give the agent the biggest ROI?
-- What context is most important?
+You have access to the full codebase (brain/, data/, main.py, Dockerfile, etc.) attached as files.
 
-Respond ONLY with the exact question I should ask you, nothing else. Make it specific and actionable."""
+Write a detailed strategic analysis (2-3 paragraphs) covering:
+1. Current situation analysis (balance, trends, patterns)
+2. What opportunities exist right now in the Lightning/Bitcoin ecosystem
+3. ROI analysis for each available action
+4. Specific recommendations
 
-        try:
-            generated_prompt = self.llm.generate(
-                prompt_gen_user, system=prompt_gen_system, max_tokens=2000
-            )
-            logger.info(
-                f"Generated detailed prompt in {time.time() - prompt_gen_start:.1f}s ({len(generated_prompt)} chars)"
-            )
-            logger.info(f"Generated prompt:\n{generated_prompt[:500]}...")
-        except Exception as e:
-            logger.error(f"Prompt generation failed: {e}")
-            generated_prompt = None
+Then end with your single-word recommendation (one of: nostr_post, blog_improve, email_outreach, browser_discover, monitor)."""
 
-        # Fallback prompt if MiniMax fails
-        if not generated_prompt:
-            generated_prompt = f"""You are MaxBitcoins Strategic Advisor. The agent has:
-- Balance: {context.get("balance", 0)} sats
-- Today's revenue: {context.get("daily_revenue", 0)} sats
-- Last action: {context.get("last_action", "none")}
-
-History:
-{json.dumps(history[-10:] if history else [], indent=2)}
-
-Opportunities found:
-{json.dumps(opportunities, indent=2)}
-
-Available actions: nostr_post, blog_improve, email_outreach, browser_discover, monitor
-
-Do deep analysis. Consider: balance trends, what's worked before, current Lightning ecosystem opportunities, ROI of each action. Make a specific recommendation with reasoning. End with single word."""
-
-        oracle_prompt = generated_prompt
+        # Build strategic prompt for Oracle directly
+        oracle_prompt = prompt_gen_user
 
         # Use oracle CLI with browser engine
         oracle_start = time.time()
