@@ -1,18 +1,17 @@
 """
-Nostr posting for MaxBitcoins using nak CLI for signing
+Nostr posting for MaxBitcoins using nostr-sdk
 SAFETY: Auto-posting is DISABLED by default. Set NOSTR_ENABLED=true to enable.
 """
 
 import asyncio
 import json
-import subprocess
 import os
 import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import websockets
+from nostr_sdk import Client, Keys, NostrSigner
 
 from brain.config import Config
 
@@ -75,61 +74,8 @@ class NostrPoster:
             self.state["failed_count"] = self.state.get("failed_count", 0) + 1
         self._save_state()
 
-    def _sign_with_nak(self, content: str) -> Optional[dict]:
-        """Use nak CLI to create and sign an event"""
-        try:
-            result = subprocess.run(
-                ["nak", "event", "-c", content, "--sec", self.config.nostr_private_key],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if result.returncode == 0:
-                return json.loads(result.stdout.strip())
-            else:
-                logger.error(f"nak event failed: {result.stderr}")
-                return None
-        except FileNotFoundError:
-            logger.error("nak CLI not found - install with: cargo install nak")
-            return None
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse nak output: {result.stdout}")
-            return None
-        except Exception as e:
-            logger.error(f"Error signing with nak: {e}")
-            return None
-
-    async def _publish_to_relay(self, relay: str, event: dict) -> bool:
-        """Publish event to a single relay"""
-        try:
-            async with websockets.connect(relay, ping_interval=None) as ws:
-                await ws.send(json.dumps(["EVENT", event]))
-
-                try:
-                    response = await asyncio.wait_for(ws.recv(), timeout=10)
-                    response_data = json.loads(response)
-
-                    if response_data[0] == "OK":
-                        if response_data[2]:
-                            logger.info(f"Event published to {relay}")
-                            return True
-                        else:
-                            logger.warning(
-                                f"Relay {relay} rejected: {response_data[3]}"
-                            )
-                            return False
-                except asyncio.TimeoutError:
-                    logger.warning(f"Timeout waiting for response from {relay}")
-                    return False
-
-        except Exception as e:
-            logger.error(f"Error connecting to {relay}: {e}")
-            return False
-
-        return False
-
     async def post_note_async(self, content: str) -> bool:
-        """Post a note to Nostr using raw WebSocket + nak signing"""
+        """Post a note to Nostr using nostr-sdk"""
         if not self.enabled:
             logger.warning("Nostr posting is disabled")
             return False
@@ -139,21 +85,27 @@ class NostrPoster:
             logger.warning("No Nostr key configured")
             return False
 
-        event = self._sign_with_nak(content)
+        try:
+            keys = Keys.from_nsec(nsec)
+            signer = NostrSigner.keys(keys)
 
-        if not event:
-            logger.error("Failed to sign event")
-            return False
+            client = Client.builder().signer(signer).build()
 
-        success = False
-        for relay in RELAYS:
-            if await self._publish_to_relay(relay, event):
-                success = True
-                break
+            for relay in RELAYS:
+                try:
+                    client.add_relay(relay)
+                except Exception as e:
+                    logger.warning(f"Failed to add relay {relay}: {e}")
 
-        if success:
+            client.publish_text_note(content)
+            client.shutdown()
+
             logger.info(f"Posted to Nostr: {content[:50]}...")
-        return success
+            return True
+
+        except Exception as e:
+            logger.error(f"Error posting to Nostr: {e}")
+            return False
 
     def post_note(self, content: str) -> bool:
         """Sync wrapper for post_note_async"""
