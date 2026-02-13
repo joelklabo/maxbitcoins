@@ -51,6 +51,10 @@ class Config:
     ollama_host: str
     ollama_model: str
 
+    # Oracle (for asking what to do)
+    use_oracle: bool
+    oracle_api_key: str
+
     # Settings
     run_interval_minutes: int
     max_loss_per_day: int
@@ -62,6 +66,7 @@ class Config:
             "MiniMax", "API Key"
         )
         zai_key = os.getenv("ZAI_API_KEY") or get_op_secret("Z.ai", "API Key")
+        oracle_key = os.getenv("ORACLE_API_KEY") or get_op_secret("Oracle", "API Key")
 
         return cls(
             # LNbits
@@ -79,6 +84,9 @@ class Config:
             zai_model=os.getenv("ZAI_MODEL", "glm-4-flash"),
             ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
             ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5-coder:14b"),
+            # Oracle
+            use_oracle=os.getenv("USE_ORACLE", "false").lower() == "true",
+            oracle_api_key=oracle_key,
             # Settings
             run_interval_minutes=int(os.getenv("RUN_INTERVAL_MINUTES", "30")),
             max_loss_per_day=int(os.getenv("MAX_LOSS_PER_DAY", "2000")),
