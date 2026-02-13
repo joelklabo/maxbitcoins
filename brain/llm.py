@@ -440,6 +440,7 @@ Respond with ONLY a single word: nostr_post, blog_improve, email_outreach, brows
         oracle_start = time.time()
         try:
             # Use oracle with browser engine (uses ChatGPT subscription)
+            # Timeout: 1 hour (oracle can take that long)
             result = subprocess.run(
                 [
                     "npx",
@@ -454,7 +455,7 @@ Respond with ONLY a single word: nostr_post, blog_improve, email_outreach, brows
                 ],
                 capture_output=True,
                 text=True,
-                timeout=600,  # 10 min timeout for oracle
+                timeout=3600,  # 1 hour timeout for oracle
                 cwd="/home/klabo/maxbitcoins",
             )
 
@@ -462,9 +463,13 @@ Respond with ONLY a single word: nostr_post, blog_improve, email_outreach, brows
             logger.info(
                 f"Oracle stdout: {result.stdout[:500] if result.stdout else 'empty'}"
             )
-            logger.info(
-                f"Oracle stderr: {result.stderr[:500] if result.stderr else 'empty'}"
-            )
+
+            # Check for errors
+            if "ECONNREFUSED" in result.stdout or "ECONNREFUSED" in result.stderr:
+                logger.warning(
+                    "Oracle browser mode failed (no Chrome), falling back to MiniMax"
+                )
+                raise Exception("Oracle browser not available")
 
             # Extract recommendation from output
             response = result.stdout
@@ -472,11 +477,22 @@ Respond with ONLY a single word: nostr_post, blog_improve, email_outreach, brows
                 return self._extract_recommendation(response)
 
         except subprocess.TimeoutExpired:
-            logger.error("Oracle timed out after 10 minutes")
+            logger.error("Oracle timed out after 1 hour")
         except Exception as e:
             logger.error(f"Oracle error: {e}")
 
-        # Fallback
+        # Fallback 1: Try MiniMax if oracle failed
+        logger.info("Falling back to MiniMax...")
+        try:
+            prompt = self._build_prompt(context, history, opportunities)
+            response = self.llm.generate(prompt, max_tokens=500)
+            if response:
+                logger.info(f"MiniMax fallback response: {response[:200]}...")
+                return self._extract_recommendation(response)
+        except Exception as e:
+            logger.error(f"MiniMax fallback failed: {e}")
+
+        # Final fallback
         return "browser_discover"
 
     def _build_prompt(self, context: dict, history: list, opportunities: dict) -> str:
