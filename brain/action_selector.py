@@ -49,7 +49,7 @@ class ActionSelector:
         """Select the best action to take"""
         logger.info(f"Oracle enabled: {self.config.use_oracle}")
 
-        # If oracle is enabled, ask it for advice
+        # If oracle is enabled, ask it for advice and EXECUTE whatever it says
         if self.config.use_oracle:
             history = self.revenue.load_history()
             recent_learnings = self.learnings.get_recent(10)
@@ -67,64 +67,49 @@ class ActionSelector:
             )
 
             if oracle_suggestion:
-                logger.info(f"Oracle suggested: {oracle_suggestion}")
+                logger.info(f"Oracle suggested: {oracle_suggestion[:500]}...")
 
-                # Handle flexible recommendations - check for keywords in response
-                suggestion_lower = oracle_suggestion.lower()
+                # Execute whatever Oracle says - give full control to MiniMax
+                return {
+                    "action": "oracle_execution",
+                    "execute": lambda: self._execute_oracle_suggestion(
+                        oracle_suggestion
+                    ),
+                    "oracle_suggestion": oracle_suggestion,
+                }
 
-                if "nostr" in suggestion_lower or "post" in suggestion_lower:
-                    if self.nostr.can_post():
-                        return {
-                            "action": "nostr_post",
-                            "execute": self._do_nostr_post,
-                            "oracle_suggestion": oracle_suggestion,
-                        }
-                elif "blog" in suggestion_lower or "improve" in suggestion_lower:
-                    if self.blog.can_post():
-                        return {
-                            "action": "blog_improve",
-                            "execute": self._do_blog_improve,
-                            "oracle_suggestion": oracle_suggestion,
-                        }
-                elif "email" in suggestion_lower or "outreach" in suggestion_lower:
-                    lead = self.email.get_next_lead()
-                    if lead and self.email.can_send():
-                        return {
-                            "action": "email_outreach",
-                            "execute": lambda: self._do_email(lead),
-                            "lead": lead,
-                            "oracle_suggestion": oracle_suggestion,
-                        }
-                elif (
-                    "browser" in suggestion_lower
-                    or "discover" in suggestion_lower
-                    or "bounty" in suggestion_lower
-                ):
-                    return {
-                        "action": "browser_discover",
-                        "execute": self._do_browser_discover,
-                        "oracle_suggestion": oracle_suggestion,
-                    }
-                elif (
-                    "monitor" in suggestion_lower
-                    or "wait" in suggestion_lower
-                    or "nothing" in suggestion_lower
-                ):
-                    logger.info(f"Oracle recommends monitoring: {oracle_suggestion}")
-                    return {
-                        "action": "monitor",
-                        "execute": lambda: {"result": "oracle_recommended_monitor"},
-                    }
-                else:
-                    # Unknown recommendation - log and try to interpret
-                    logger.warning(
-                        f"Unknown oracle suggestion: {oracle_suggestion[:100]}..."
-                    )
+        # Fallback if no oracle
+        return self._default_action()
 
-        # Default priority order if no oracle or oracle didn't match:
-        # 1. Nostr (3/day, 2 fails)
-        # 2. Blog (2/week, 2 fails)
-        # 3. Email (5/day, 2 fails)
+    def _execute_oracle_suggestion(self, suggestion: str) -> dict:
+        """Execute whatever Oracle suggests using MiniMax"""
+        logger.info(f"Executing Oracle suggestion: {suggestion[:200]}...")
+
+        # Ask MiniMax to execute the suggestion
+        system = """You are MaxBitcoins execution engine. You have full control to take ANY action to earn Bitcoin. 
+        
+You have access to:
+- Nostr posting (beeminder can zap)
+- Blog improvement 
+- Email outreach
+- Browser for discovery
+- Full codebase at /home/klabo/code/maxbitcoins/
+
+Execute whatever the user requests. If it requires code changes, make them. If it requires posting somewhere, do it. 
+Just get it done and report what you did."""
+
+        result = self.llm.generate(suggestion, system=system, max_tokens=2000)
+
+        if result:
+            logger.info(f"MiniMax execution result: {result[:500]}...")
+            return {"result": "executed", "output": result}
+        else:
+            logger.error("MiniMax failed to execute")
+            return {"result": "failed", "reason": "llm_failed"}
+
+    def _default_action(self) -> dict:
+        """Default action priority when oracle is disabled"""
+        # Priority order: Nostr -> Blog -> Email -> Monitor
 
         # Check Nostr
         if self.nostr.can_post() and self.nostr.get_failed_count() < 2:
