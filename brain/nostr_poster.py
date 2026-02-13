@@ -1,13 +1,12 @@
 """
-Nostr posting for MaxBitscoins
+Nostr posting for MaxBitcoins
 SAFETY: Auto-posting is DISABLED by default. Set NOSTR_ENABLED=true to enable.
 """
 
 import logging
 import json
 import os
-import time
-import subprocess
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from brain.config import Config
@@ -80,7 +79,7 @@ class NostrPoster:
         self._save_state()
 
     def post_note(self, content: str) -> bool:
-        """Post a note to Nostr using nak CLI"""
+        """Post a note to Nostr using pynostr"""
         if not self.enabled:
             logger.warning("Nostr posting is disabled")
             return False
@@ -91,23 +90,25 @@ class NostrPoster:
             return False
 
         try:
-            result = subprocess.run(
-                ["nak", "event", "-c", content, "--sec", nsec] + RELAYS,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
+            from pynostr import RelayPool
+            from pynostr.key import PrivateKey
+            from pynostr.event import Event
 
-            if result.returncode == 0 and "success" in result.stdout.lower():
-                logger.info(f"Posted to Nostr: {content[:50]}...")
-                return True
-            else:
-                logger.warning(f"nak failed: {result.stderr}")
-                return False
+            # Create private key from nsec
+            private_key = PrivateKey.from_nsec(nsec)
 
-        except FileNotFoundError:
-            logger.warning("nak not found")
-            return False
+            # Create event
+            event = Event(content=content, public_key=private_key.public_key.hex())
+            private_key.sign_event(event)
+
+            # Publish to relays
+            pool = RelayPool(RELAYS)
+            pool.publish_event(event)
+            pool.close()
+
+            logger.info(f"Posted to Nostr: {content[:50]}...")
+            return True
+
         except Exception as e:
             logger.error(f"Error posting to Nostr: {e}")
             return False
