@@ -45,7 +45,37 @@ class ActionSelector:
 
     def select_action(self) -> dict:
         """Select the best action to take"""
-        # Priority order based on user's limits:
+
+        # If oracle is enabled, ask it for advice
+        if self.config.use_oracle:
+            oracle_suggestion = self.llm.ask_oracle(
+                {
+                    "balance": self.revenue.get_balance(),
+                    "daily_revenue": self.revenue.get_stats().get("daily_revenue", 0),
+                    "last_action": self.revenue.get_stats().get("last_action", "none"),
+                    "failed_count": self.nostr.get_failed_count()
+                    + self.blog.get_failed_count()
+                    + self.email.get_failed_count(),
+                }
+            )
+
+            if oracle_suggestion:
+                logger.info(f"Oracle suggested: {oracle_suggestion}")
+
+                if oracle_suggestion == "nostr_post" and self.nostr.can_post():
+                    return {"action": "nostr_post", "execute": self._do_nostr_post}
+                elif oracle_suggestion == "blog_improve" and self.blog.can_post():
+                    return {"action": "blog_improve", "execute": self._do_blog_improve}
+                elif oracle_suggestion == "email_outreach":
+                    lead = self.email.get_next_lead()
+                    if lead and self.email.can_send():
+                        return {
+                            "action": "email_outreach",
+                            "execute": lambda: self._do_email(lead),
+                            "lead": lead,
+                        }
+
+        # Default priority order if no oracle or oracle didn't match:
         # 1. Nostr (3/day, 2 fails)
         # 2. Blog (2/week, 2 fails)
         # 3. Email (5/day, 2 fails)
