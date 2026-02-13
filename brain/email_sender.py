@@ -10,7 +10,7 @@ from brain.config import Config
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = Path("/data")
+DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 class EmailSender:

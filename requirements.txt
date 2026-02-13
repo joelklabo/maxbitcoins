@@ -1,6 +1,6 @@
 requests>=2.31.0
 python-dotenv>=1.0.0
-nostr>=0.0.2
 lnbits>=0.3.0
 httpx>=0.27.0
 bech32
+websockets>=12.0
