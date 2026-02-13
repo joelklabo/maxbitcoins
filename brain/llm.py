@@ -429,12 +429,15 @@ Available actions: nostr_post, blog_improve, email_outreach, browser_discover, m
 You have access to the full codebase (brain/, data/, main.py, Dockerfile, etc.) attached as files.
 
 Write a detailed strategic analysis (2-3 paragraphs) covering:
-1. Current situation analysis (balance, trends, patterns)
+1. Current situation analysis (balance, trends, patterns from history)
 2. What opportunities exist right now in the Lightning/Bitcoin ecosystem
 3. ROI analysis for each available action
-4. Specific recommendations
+4. Specific recommendations for how this agent can earn more Bitcoin
+5. Any new strategies or ideas that haven't been tried
 
-Then end with your single-word recommendation (one of: nostr_post, blog_improve, email_outreach, browser_discover, monitor)."""
+Then end with your final recommendation on what single action to take right now (one of: nostr_post, blog_improve, email_outreach, browser_discover, monitor).
+
+IMPORTANT: Write as much detail as possible - this will be saved and learned from."""
 
         # Build strategic prompt for Oracle directly
         oracle_prompt = prompt_gen_user
@@ -496,9 +499,28 @@ Then end with your single-word recommendation (one of: nostr_post, blog_improve,
                 )
                 raise Exception("Oracle browser not available")
 
-            # Extract recommendation from output
+            # Extract full response and save to learnings
             response = result.stdout
             if response:
+                # Log the full strategic analysis
+                logger.info(
+                    f"=== ORACLE STRATEGIC ANALYSIS ===\n{response}\n=== END ORACLE ANALYSIS ==="
+                )
+
+                # Also save to file for learning
+                try:
+                    from pathlib import Path
+
+                    oracle_file = Path(
+                        "/home/klabo/maxbitcoins/data/oracle_analysis.md"
+                    )
+                    oracle_file.parent.mkdir(parents=True, exist_ok=True)
+                    oracle_file.write_text(
+                        f"# Oracle Strategic Analysis\n\n{response}\n"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to save oracle analysis: {e}")
+
                 return self._extract_recommendation(response)
 
         except subprocess.TimeoutExpired:
