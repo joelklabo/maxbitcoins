@@ -8,7 +8,6 @@ import json
 import os
 import time
 import hashlib
-import subprocess
 from datetime import datetime
 from pathlib import Path
 import secp256k1
@@ -168,57 +167,42 @@ class NostrPoster:
     def _create_event(self, content: str) -> dict:
         """Create a Nostr event"""
         created_at = int(time.time())
+        pubkey_hex = self._pubkey.hex() if self._pubkey else ""
 
-        # Build event data
-        event = [
-            0,  # id (to be filled)
+        # Build event data for ID hash - order is: [0, pubkey, created_at, kind, tags, content]
+        event_for_hash = [
+            0,  # placeholder (will be replaced with hash)
+            pubkey_hex,
             created_at,
             1,  # kind 1 - text note
             [],  # tags
-            self._pubkey.hex() if self._pubkey else "",
             content,
         ]
 
-        # Calculate ID
-        event_json = json.dumps(event, separators=(",", ":"))
+        # Calculate ID - serialize WITHOUT the id placeholder, just with 0
+        event_json = json.dumps(event_for_hash, separators=(",", ":"))
         id_hash = hashlib.sha256(event_json.encode()).hexdigest()
 
-        event[0] = id_hash
-
         # Sign
+        sig_hex = ""
         if self._privkey:
             sig = self._privkey.schnorr_sign(
                 bytes.fromhex(id_hash), bip340tag=None, raw=True
             )
-            event.append(sig.hex())
+            sig_hex = sig.hex()
+
+        # Create event as dict (relays prefer this)
+        event = {
+            "id": id_hash,
+            "pubkey": pubkey_hex,
+            "created_at": created_at,
+            "kind": 1,
+            "tags": [],
+            "content": content,
+            "sig": sig_hex,
+        }
 
         return {"id": id_hash, "event": event}
-
-    def _post_with_nak(self, content: str) -> bool:
-        """Post using nak CLI (more reliable)"""
-        if not self.enabled:
-            return False
-
-        nsec = self.config.nostr_private_key
-        if not nsec:
-            return False
-
-        try:
-            result = subprocess.run(
-                ["nak", "event", "-c", content, "--sec", nsec] + RELAYS,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if "success" in result.stdout or result.returncode == 0:
-                logger.info(f"Posted via nak: {content[:30]}...")
-                return True
-            else:
-                logger.warning(f"nak failed: {result.stderr}")
-                return False
-        except Exception as e:
-            logger.warning(f"Error using nak: {e}")
-            return False
 
     def post_note(self, content: str) -> bool:
         """Post a note to Nostr"""
@@ -230,11 +214,7 @@ class NostrPoster:
             logger.warning("No Nostr key configured")
             return False
 
-        # Try using nak first (more reliable)
-        if self._post_with_nak(content):
-            return True
-
-        # Fallback to manual WebSocket
+        # Try using websocket
         try:
             event_data = self._create_event(content)
 
@@ -299,12 +279,7 @@ Keep it under 280 characters. Be informative and friendly. Topic: {topic}"""
 
         content = f"{emoji} MaxBitcoins: {balance:,} sats | {action} | {result[:60]}"
 
-        # Try using nak first
-        if self._post_with_nak(content):
-            logger.info(f"Nostr notification sent: {content[:50]}...")
-            return True
-
-        # Fallback to manual WebSocket
+        # Try sending via WebSocket
         try:
             event_data = self._create_event(content)
 
