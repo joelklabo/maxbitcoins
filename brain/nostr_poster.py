@@ -72,7 +72,7 @@ def _nsec_to_hex(nsec: str) -> "str | None":
             logger.warning(f"Failed to decode nsec: {nsec[:20]}...")
             return None
         hrp, data = result
-        conv = _convert_bits(data, 5, 8, False)
+        conv = _convert_bits(data, 5, 8, True)
         if conv is None:
             logger.warning("Failed to convert bits")
             return None
