@@ -1,9 +1,33 @@
 """
-Configuration management
+Configuration management - fetches secrets from 1Password
 """
 
 import os
+import subprocess
 from dataclasses import dataclass
+
+
+def get_op_secret(item: str, field: str) -> str:
+    """Fetch secret from 1Password"""
+    try:
+        result = subprocess.run(
+            ["op", "item", "get", item, "--vault", "Agents", "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return ""
+
+        import json
+
+        data = json.loads(result.stdout)
+        for f in data.get("fields", []):
+            if f.get("label", "").lower() == field.lower():
+                return f.get("value", "") or ""
+        return ""
+    except Exception:
+        return ""
 
 
 @dataclass
@@ -33,6 +57,12 @@ class Config:
 
     @classmethod
     def from_env(cls):
+        # Fetch secrets from 1Password
+        minimax_key = os.getenv("MINIMAX_API_KEY") or get_op_secret(
+            "MiniMax", "API Key"
+        )
+        zai_key = os.getenv("ZAI_API_KEY") or get_op_secret("Z.ai", "API Key")
+
         return cls(
             # LNbits
             lnurl=os.getenv("LNURL", ""),
@@ -43,9 +73,9 @@ class Config:
             # Cloudflare
             cf_api_token=os.getenv("CF_API_TOKEN", ""),
             # LLM Providers
-            minimax_api_key=os.getenv("MINIMAX_API_KEY", ""),
+            minimax_api_key=minimax_key,
             minimax_model=os.getenv("MINIMAX_MODEL", "MiniMax-Text-01"),
-            zai_api_key=os.getenv("ZAI_API_KEY", ""),
+            zai_api_key=zai_key,
             zai_model=os.getenv("ZAI_MODEL", "glm-4-flash"),
             ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
             ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5-coder:14b"),
