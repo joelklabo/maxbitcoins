@@ -1,5 +1,5 @@
 """
-Nostr posting for MaxBitcoins using nostr-sdk
+Nostr posting for MaxBitcoins using raw WebSocket
 SAFETY: Auto-posting is DISABLED by default. Set NOSTR_ENABLED=true to enable.
 """
 
@@ -10,8 +10,6 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-
-from nostr_sdk import Client, Keys, NostrSigner
 
 from brain.config import Config
 
@@ -74,8 +72,103 @@ class NostrPoster:
             self.state["failed_count"] = self.state.get("failed_count", 0) + 1
         self._save_state()
 
+    def _get_public_key(self, nsec: str) -> Optional[str]:
+        """Get public key from nsec using nostr-sdk"""
+        try:
+            from nostr_sdk import SecretKey, Keys
+
+            sk = SecretKey.parse(nsec)
+            keys = Keys(sk)
+            return keys.public_key().to_hex()
+        except Exception as e:
+            logger.error(f"Failed to get public key: {e}")
+            return None
+
+    def _sign_event(self, event: dict, nsec: str) -> Optional[dict]:
+        """Sign event using nostr-sdk"""
+        try:
+            from nostr_sdk import Client, Keys, SecretKey, NostrSigner, EventBuilder
+
+            sk = SecretKey.parse(nsec)
+            keys = Keys(sk)
+            signer = NostrSigner.keys(keys)
+
+            client = Client(signer)
+
+            for relay in RELAYS:
+                try:
+                    asyncio.run(client.add_relay(relay))
+                except:
+                    pass
+
+            asyncio.run(client.connect())
+
+            pubkey = keys.public_key().to_hex()
+            event["pubkey"] = pubkey
+
+            serialized = json.dumps(
+                [0, pubkey, event["created_at"], event["tags"], event["content"]],
+                separators=(",", ":"),
+            )
+
+            import hashlib
+
+            event_id = hashlib.sha256(serialized.encode()).hex()
+            event["id"] = event_id
+
+            signed = asyncio.run(
+                client.sign_event_builder(EventBuilder.text_note(event["content"]))
+            )
+
+            asyncio.run(client.shutdown())
+
+            return {
+                "id": signed.id().to_hex(),
+                "pubkey": signed.pubkey().to_hex(),
+                "created_at": signed.created_at().timestamp(),
+                "kind": signed.kind().as_u16(),
+                "tags": [[t.tag(), t.content()] for t in signed.tags()]
+                if signed.tags()
+                else [],
+                "content": signed.content(),
+                "sig": signed.sig().to_hex(),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to sign event: {e}")
+            return None
+
+    async def _publish_to_relay(self, relay: str, event: dict) -> bool:
+        """Publish event to a single relay"""
+        import websockets
+
+        try:
+            async with websockets.connect(relay, ping_interval=None) as ws:
+                await ws.send(json.dumps(["EVENT", event]))
+
+                try:
+                    response = await asyncio.wait_for(ws.recv(), timeout=10)
+                    response_data = json.loads(response)
+
+                    if response_data[0] == "OK":
+                        if response_data[2]:
+                            return True
+                        else:
+                            logger.warning(
+                                f"Relay {relay} rejected: {response_data[3]}"
+                            )
+                            return False
+                except asyncio.TimeoutError:
+                    return False
+
+        except Exception as e:
+            logger.error(f"Error connecting to {relay}: {e}")
+            return False
+
+        return False
+
     async def post_note_async(self, content: str) -> bool:
-        """Post a note to Nostr using nostr-sdk"""
+        """Post a note to Nostr"""
         if not self.enabled:
             logger.warning("Nostr posting is disabled")
             return False
@@ -86,7 +179,7 @@ class NostrPoster:
             return False
 
         try:
-            from nostr_sdk import Client, Keys, SecretKey, NostrSigner
+            from nostr_sdk import SecretKey, Keys, Client, NostrSigner, EventBuilder
 
             sk = SecretKey.parse(nsec)
             keys = Keys(sk)
@@ -96,18 +189,16 @@ class NostrPoster:
 
             for relay in RELAYS:
                 try:
-                    client.add_relay(relay)
+                    await client.add_relay(relay)
                 except Exception as e:
-                    logger.warning(f"Failed to add relay {relay}: {e}")
+                    pass
 
-            client.connect()
-
-            from nostr_sdk import EventBuilder, Note
+            await client.connect()
 
             builder = EventBuilder.text_note(content)
-            client.send_event_builder(builder)
+            await client.send_event_builder(builder)
 
-            client.shutdown()
+            await client.shutdown()
 
             logger.info(f"Posted to Nostr: {content[:50]}...")
             return True
