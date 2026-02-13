@@ -69,23 +69,57 @@ class ActionSelector:
             if oracle_suggestion:
                 logger.info(f"Oracle suggested: {oracle_suggestion}")
 
-                if oracle_suggestion == "nostr_post" and self.nostr.can_post():
-                    return {"action": "nostr_post", "execute": self._do_nostr_post}
-                elif oracle_suggestion == "blog_improve" and self.blog.can_post():
-                    return {"action": "blog_improve", "execute": self._do_blog_improve}
-                elif oracle_suggestion == "email_outreach":
+                # Handle flexible recommendations - check for keywords in response
+                suggestion_lower = oracle_suggestion.lower()
+
+                if "nostr" in suggestion_lower or "post" in suggestion_lower:
+                    if self.nostr.can_post():
+                        return {
+                            "action": "nostr_post",
+                            "execute": self._do_nostr_post,
+                            "oracle_suggestion": oracle_suggestion,
+                        }
+                elif "blog" in suggestion_lower or "improve" in suggestion_lower:
+                    if self.blog.can_post():
+                        return {
+                            "action": "blog_improve",
+                            "execute": self._do_blog_improve,
+                            "oracle_suggestion": oracle_suggestion,
+                        }
+                elif "email" in suggestion_lower or "outreach" in suggestion_lower:
                     lead = self.email.get_next_lead()
                     if lead and self.email.can_send():
                         return {
                             "action": "email_outreach",
                             "execute": lambda: self._do_email(lead),
                             "lead": lead,
+                            "oracle_suggestion": oracle_suggestion,
                         }
-                elif oracle_suggestion == "browser_discover":
+                elif (
+                    "browser" in suggestion_lower
+                    or "discover" in suggestion_lower
+                    or "bounty" in suggestion_lower
+                ):
                     return {
                         "action": "browser_discover",
                         "execute": self._do_browser_discover,
+                        "oracle_suggestion": oracle_suggestion,
                     }
+                elif (
+                    "monitor" in suggestion_lower
+                    or "wait" in suggestion_lower
+                    or "nothing" in suggestion_lower
+                ):
+                    logger.info(f"Oracle recommends monitoring: {oracle_suggestion}")
+                    return {
+                        "action": "monitor",
+                        "execute": lambda: {"result": "oracle_recommended_monitor"},
+                    }
+                else:
+                    # Unknown recommendation - log and try to interpret
+                    logger.warning(
+                        f"Unknown oracle suggestion: {oracle_suggestion[:100]}..."
+                    )
 
         # Default priority order if no oracle or oracle didn't match:
         # 1. Nostr (3/day, 2 fails)
