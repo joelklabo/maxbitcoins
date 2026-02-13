@@ -474,27 +474,28 @@ IMPORTANT: Write as much detail as possible - this will be saved and learned fro
                 "infra/",
             ]
 
-            # Use agent-browser with dedicated session for Oracle
-            # This creates an isolated Chrome instance that won't conflict with others
-            oracle_session = "maxbitcoins-oracle"
-            logger.info(f"Starting agent-browser session: {oracle_session}...")
+            # Start a dedicated Chrome for Oracle on port 9477
+            oracle_port = "9477"
+            chrome_proc = None
+            
+            try:
+                logger.info(f"Starting Chrome on port {oracle_port}...")
 
-            # Start a dedicated browser session for Oracle
-            browser_result = subprocess.run(
-                ["agent-browser", "--session", oracle_session, "open", "about:blank"],
-                capture_output=True,
-                text=True,
-                timeout=30,
+            # Start Chrome in background
+            chrome_proc = subprocess.Popen(
+                [
+                    "chromium",
+                    f"--remote-debugging-port={oracle_port}",
+                    "--headless",
+                    "--no-sandbox",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
+            time.sleep(3)
 
-            # Now run oracle with the session (use --session flag)
-            cmd.extend(["--session", oracle_session])
-
-            # Clear any env vars that might interfere with our own browser
-            clean_env = os.environ.copy()
-            # Override these to empty strings so Oracle uses our own browser
-            clean_env["ORACLE_REMOTE_HOST"] = ""
-            clean_env["ORACLE_REMOTE_TOKEN"] = ""
+            # Tell Oracle to use this Chrome
+            cmd.extend(["--browser-port", oracle_port])
 
             # Timeout: 1 hour (oracle can take that long)
             logger.info(f"Calling oracle with full codebase...")
@@ -548,6 +549,14 @@ IMPORTANT: Write as much detail as possible - this will be saved and learned fro
             logger.error("Oracle timed out after 1 hour")
         except Exception as e:
             logger.error(f"Oracle error: {e}")
+        finally:
+            # Cleanup Chrome process
+            try:
+                chrome_proc.terminate()
+                chrome_proc.wait(timeout=5)
+                logger.info("Chrome process terminated")
+            except:
+                pass
 
         # Fallback 1: Try MiniMax if oracle failed
         logger.info("Falling back to MiniMax...")
