@@ -521,14 +521,14 @@ IMPORTANT: Write as much detail as possible - this will be saved and learned fro
                     f"Oracle stdout: {result.stdout[:2000] if result.stdout else 'empty'}"
                 )
 
-            # Check for errors
-            if "ECONNREFUSED" in result.stdout or "ECONNREFUSED" in result.stderr:
-                logger.warning(
-                    "Oracle browser mode failed (no Chrome), falling back to MiniMax"
-                )
-                raise Exception("Oracle browser not available")
+                # Check for errors
+                if "ECONNREFUSED" in result.stdout or "ECONNREFUSED" in result.stderr:
+                    logger.warning(
+                        "Oracle browser mode failed (no Chrome), falling back to MiniMax"
+                    )
+                    raise Exception("Oracle browser not available")
 
-            # Extract full response and save to learnings
+                # Extract full response and save to learnings
             response = result.stdout
             if response:
                 # Log the full strategic analysis
