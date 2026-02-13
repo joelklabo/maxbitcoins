@@ -439,20 +439,27 @@ Respond with ONLY a single word: nostr_post, blog_improve, email_outreach, brows
         # Use oracle CLI with browser engine
         oracle_start = time.time()
         try:
-            # Use oracle with browser engine (uses ChatGPT subscription)
+            # Build oracle command with remote host if configured
+            cmd = [
+                "npx",
+                "-y",
+                "@steipete/oracle",
+                "--engine",
+                "browser",
+                "--model",
+                "gpt-5.2-pro",
+                "--prompt",
+                oracle_prompt,
+            ]
+
+            # Add remote host if configured
+            if self.config.oracle_remote_host:
+                cmd.extend(["--remote-host", self.config.oracle_remote_host])
+                if self.config.oracle_remote_token:
+                    cmd.extend(["--remote-token", self.config.oracle_remote_token])
+
             # Timeout: 1 hour (oracle can take that long)
             result = subprocess.run(
-                [
-                    "npx",
-                    "-y",
-                    "@steipete/oracle",
-                    "--engine",
-                    "browser",
-                    "--model",
-                    "gpt-5.2-pro",
-                    "--prompt",
-                    oracle_prompt,
-                ],
                 capture_output=True,
                 text=True,
                 timeout=3600,  # 1 hour timeout for oracle

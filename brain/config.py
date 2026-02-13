@@ -54,6 +54,8 @@ class Config:
     # Oracle (for asking what to do)
     use_oracle: bool
     oracle_api_key: str
+    oracle_remote_host: str
+    oracle_remote_token: str
 
     # Settings
     run_interval_minutes: int
@@ -87,6 +89,8 @@ class Config:
             # Oracle
             use_oracle=os.getenv("USE_ORACLE", "false").lower() == "true",
             oracle_api_key=oracle_key,
+            oracle_remote_host=os.getenv("ORACLE_REMOTE_HOST", ""),
+            oracle_remote_token=os.getenv("ORACLE_REMOTE_TOKEN", ""),
             # Settings
             run_interval_minutes=int(os.getenv("RUN_INTERVAL_MINUTES", "30")),
             max_loss_per_day=int(os.getenv("MAX_LOSS_PER_DAY", "2000")),
