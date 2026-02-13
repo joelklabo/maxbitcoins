@@ -73,9 +73,15 @@ class MiniMaxProvider(LLMProvider):
                 data = resp.json()
                 # Anthropic format: content is an array with different types (text, thinking)
                 content = data.get("content", [])
+                logger.info(
+                    f"MiniMax content items: {len(content)} - types: {[c.get('type') for c in content]}"
+                )
                 for item in content:
                     if item.get("type") == "text":
                         return item.get("text", "").strip()
+                logger.warning(
+                    f"No text type found in MiniMax response content: {content}"
+                )
                 return ""
 
             logger.warning(f"MiniMax request failed: {resp.status_code} - {resp.text}")
