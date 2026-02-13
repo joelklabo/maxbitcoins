@@ -4,9 +4,9 @@ WORKDIR /app
 
 # Install dependencies including op CLI
 RUN apt-get update && apt-get install -y curl && \
-    curl -sS https://app.1password.com/downloads/1password-cli/1password-cli-latest_linux_amd64.deb -o /tmp/1password-cli.deb && \
-    dpkg -i /tmp/1password-cli.deb || apt-get install -f -y && \
-    rm /tmp/1password-cli.deb && \
+    curl -sS https://downloads.1password.com/linux/stable/x86_64/1password-latest.x86_64 -o /usr/local/bin/1password && \
+    chmod +x /usr/local/bin/1password && \
+    ln -s /usr/local/bin/1password /usr/local/bin/op && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
