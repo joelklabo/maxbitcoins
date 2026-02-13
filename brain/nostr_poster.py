@@ -217,37 +217,24 @@ class NostrPoster:
 
     def generate_content(self, llm) -> str:
         """Generate content using LLM"""
-        topics = [
-            "Why Lightning Network is the future of Bitcoin payments",
-            "How to earn sats with the Lightning Network",
-            "The benefits of self-custody Lightning wallets",
-            "Understanding Lightning Network routing and liquidity",
-            "How to set up a Lightning node for beginners",
+
+        prompts = [
+            "Write a specific, counter-intuitive Lightning Network fact with a number. Example: 'Most LN nodes have 0 channels. The top 10% have 90% of liquidity.' Keep under 150 chars.",
+            "Share one specific tip to earn more sats on Lightning. Be concrete. Example: 'Run a node with Phoenix Wallet - they route your payments and you earn routing fees.' Under 150 chars.",
+            "Tell me one surprising stat about Lightning Network. Example: 'LN has processed $1B+ in volume despite being 3 years old.' Under 150 chars.",
+            "What's one common Lightning mistake? Example: 'Closing channels when fees are high costs you 10x more.' Under 150 chars.",
         ]
 
         import random
 
-        topic = random.choice(topics)
+        prompt = random.choice(prompts)
 
-        prompt = f"""Write a single, punchy Lightning Network insight for Bitcoiners. 
-Rules:
-- Maximum 180 characters
-- No emojis (use text symbols only)
-- Start with a bold claim or number
-- Be specific and useful, not generic
-- No hashtags, no threads
-Topic: {topic}
-
-Example: "Your LN node earns ~1% APR on inbound liquidity. Add 1M sats capacity = ~10k sats/year passive."
-
-Write one original insight on: {topic}"""
-
-        content = llm.generate(prompt, max_tokens=150)
+        content = llm.generate(prompt, max_tokens=100)
 
         content = content.strip()
 
-        if len(content) > 180:
-            content = content[:177] + "..."
+        if len(content) > 150:
+            content = content[:147] + "..."
 
         return content
 
