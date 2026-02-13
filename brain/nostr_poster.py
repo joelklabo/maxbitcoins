@@ -1,5 +1,5 @@
 """
-Nostr posting for MaxBitcoins
+Nostr posting for MaxBitscoins
 SAFETY: Auto-posting is DISABLED by default. Set NOSTR_ENABLED=true to enable.
 """
 
@@ -7,82 +7,15 @@ import logging
 import json
 import os
 import time
-import hashlib
+import subprocess
 from datetime import datetime
 from pathlib import Path
-import secp256k1
-import websocket
 from brain.config import Config
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path("/data")
 RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net"]
-
-CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-
-
-def _bech32_decode(s: str) -> tuple[str, list[int]] | None:
-    """Decode a bech32 string"""
-    s = s.lower()
-    pos = s.rfind("1")
-    if pos == -1:
-        return None
-    hrp = s[:pos]
-    data = s[pos + 1 :]
-    for c in data:
-        if c not in CHARSET:
-            return None
-    conv = []
-    for c in data:
-        conv.append(CHARSET.index(c))
-    return hrp, conv
-
-
-def _convert_bits(
-    data: list[int], frombits: int, tobits: int, pad: bool = True
-) -> list[int] | None:
-    """Convert between bit lengths"""
-    acc = 0
-    bits = 0
-    ret = []
-    maxv = (1 << tobits) - 1
-    max_acc = (1 << (frombits + tobits - 1)) - 1
-    for value in data:
-        if value < 0 or (value >> frombits) != 0:
-            return None
-        acc = ((acc << frombits) | value) & max_acc
-        bits += frombits
-        while bits >= tobits:
-            bits -= tobits
-            ret.append((acc >> bits) & maxv)
-    if pad:
-        if bits > 0:
-            ret.append((acc << (tobits - bits)) & maxv)
-    elif bits >= frombits or ((acc << (tobits - bits)) & maxv):
-        return None
-    return ret
-
-
-def _nsec_to_hex(nsec: str) -> "str | None":
-    """Convert nsec1 bech32 to hex"""
-    try:
-        result = _bech32_decode(nsec)
-        if result is None:
-            logger.warning(f"Failed to decode nsec: {nsec[:20]}...")
-            return None
-        hrp, data = result
-        conv = _convert_bits(data, 5, 8, True)
-        if conv is None:
-            logger.warning("Failed to convert bits")
-            return None
-        # Remove checksum (last 6 bytes) to get 32-byte private key
-        if len(conv) > 32:
-            conv = conv[:32]
-        return bytes(conv).hex()
-    except Exception as e:
-        logger.warning(f"Error converting nsec: {e}")
-        return None
 
 
 class NostrPoster:
@@ -95,28 +28,10 @@ class NostrPoster:
         # SAFETY: Check if posting is enabled
         self.enabled = os.getenv("NOSTR_ENABLED", "false").lower() == "true"
 
-        # Derive public key from private - requires raw hex format (not nsec1 bech32)
-        self._pubkey = None
-        self._privkey = None
-
-        if self.enabled and self.config.nostr_private_key:
-            try:
-                key = self.config.nostr_private_key
-                if key.startswith("nsec1"):
-                    key = _nsec_to_hex(key)
-                    if key is None:
-                        logger.warning("nsec conversion failed, posting disabled")
-                        self.enabled = False
-                    else:
-                        logger.info("Converted nsec1 to hex")
-                if key and not key.startswith("nsec1"):
-                    priv_bytes = bytes.fromhex(key)
-                    self._privkey = secp256k1.PrivateKey(priv_bytes)
-                    self._pubkey = self._privkey.pubkey.serialize()[1:]
-                    logger.info("Nostr posting ENABLED")
-            except Exception as e:
-                logger.error(f"Failed to derive pubkey: {e}")
-                self.enabled = False
+        # nak handles key derivation internally, just check config exists
+        if self.enabled and not self.config.nostr_private_key:
+            logger.warning("No Nostr key configured")
+            self.enabled = False
 
         if not self.enabled:
             logger.info("Nostr posting disabled (set NOSTR_ENABLED=true to enable)")
@@ -164,85 +79,35 @@ class NostrPoster:
             self.state["failed_count"] = self.state.get("failed_count", 0) + 1
         self._save_state()
 
-    def _create_event(self, content: str) -> dict:
-        """Create a Nostr event"""
-        created_at = int(time.time())
-        pubkey_hex = self._pubkey.hex() if self._pubkey else ""
-
-        # Compute ID hash from array format [0, pubkey, created_at, kind, tags, content]
-        event_for_hash = [
-            0,
-            pubkey_hex,
-            created_at,
-            1,
-            [],
-            content,
-        ]
-        event_json = json.dumps(event_for_hash, separators=(",", ":"))
-        id_hash = hashlib.sha256(event_json.encode()).hexdigest()
-
-        # Sign
-        sig_hex = ""
-        if self._privkey:
-            sig = self._privkey.schnorr_sign(
-                bytes.fromhex(id_hash), bip340tag=None, raw=True
-            )
-            sig_hex = sig.hex()
-
-        # Create event as dict with EXACT key order as nak: kind, id, pubkey, created_at, tags, content, sig
-        event = [
-            1,  # kind
-            id_hash,  # id
-            pubkey_hex,  # pubkey
-            created_at,  # created_at
-            [],  # tags
-            content,  # content
-            sig_hex,  # sig
-        ]
-
-        return {"id": id_hash, "event": event}
-
     def post_note(self, content: str) -> bool:
-        """Post a note to Nostr"""
+        """Post a note to Nostr using nak CLI"""
         if not self.enabled:
             logger.warning("Nostr posting is disabled")
             return False
 
-        if not self._pubkey or not self._privkey:
+        nsec = self.config.nostr_private_key
+        if not nsec:
             logger.warning("No Nostr key configured")
             return False
 
-        # Try using websocket
         try:
-            event_data = self._create_event(content)
-            success = True
+            result = subprocess.run(
+                ["nak", "event", "-c", content, "--sec", nsec] + RELAYS,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
 
-            for relay in RELAYS:
-                try:
-                    ws = websocket.create_connection(relay, timeout=10)
-                    ws.send(json.dumps(["EVENT", event_data["event"]]))
-
-                    # Wait for OK response
-                    response = ws.recv()
-                    logger.info(f"Relay {relay} response: {response}")
-
-                    # Check if relay accepted
-                    if "false" in response.lower():
-                        logger.warning(f"Relay {relay} rejected: {response}")
-                        success = False
-
-                    ws.close()
-                    logger.info(f"Posted to {relay}")
-                except Exception as e:
-                    logger.warning(f"Failed to post to {relay}: {e}")
-
-            if success:
+            if result.returncode == 0 and "success" in result.stdout.lower():
                 logger.info(f"Posted to Nostr: {content[:50]}...")
                 return True
             else:
-                logger.warning("All relays rejected the event")
+                logger.warning(f"nak failed: {result.stderr}")
                 return False
 
+        except FileNotFoundError:
+            logger.warning("nak not found")
+            return False
         except Exception as e:
             logger.error(f"Error posting to Nostr: {e}")
             return False
@@ -273,11 +138,7 @@ Keep it under 280 characters. Be informative and friendly. Topic: {topic}"""
         return content
 
     def notify(self, balance: int, action: str, result: str) -> bool:
-        """Send run notification to Nostr (always works if key configured)"""
-        if not self._pubkey or not self._privkey:
-            logger.warning("No Nostr key configured for notifications")
-            return False
-
+        """Send run notification to Nostr"""
         # Format short message
         emoji = "🟢"
         if "failed" in result.lower():
@@ -287,23 +148,4 @@ Keep it under 280 characters. Be informative and friendly. Topic: {topic}"""
 
         content = f"{emoji} MaxBitcoins: {balance:,} sats | {action} | {result[:60]}"
 
-        # Try sending via websocket
-        try:
-            event_data = self._create_event(content)
-
-            for relay in RELAYS:
-                try:
-                    ws = websocket.create_connection(relay, timeout=10)
-                    ws.send(json.dumps(["EVENT", event_data["event"]]))
-                    response = ws.recv()
-                    logger.info(f"Relay {relay} response: {response}")
-                    ws.close()
-                except Exception as e:
-                    logger.warning(f"Failed to notify via {relay}: {e}")
-
-            logger.info(f"Nostr notification sent: {content[:50]}...")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error sending Nostr notification: {e}")
-            return False
+        return self.post_note(content)

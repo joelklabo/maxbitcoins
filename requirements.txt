@@ -5,4 +5,4 @@ lnbits>=0.3.0
 httpx>=0.27.0
 bech32
 websocket-client
-secp256k1
+nak
