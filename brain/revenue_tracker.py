@@ -105,4 +105,5 @@ class RevenueTracker:
             "balance_at_start": first.get("balance", 0),
             "all_time_earnings": latest.get("balance", 0) - first.get("balance", 0),
             "daily_revenue": self.get_daily_revenue(),
+            "last_action": latest.get("action", ""),
         }

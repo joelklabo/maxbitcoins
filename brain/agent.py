@@ -11,6 +11,7 @@ from brain.services import ServiceManager
 from brain.llm import LLM
 from brain.discovery import Discovery
 from brain.revenue_tracker import RevenueTracker
+from brain.strategic_learnings import StrategicLearnings
 from brain.nostr_poster import NostrPoster
 from brain.blog_improver import BlogImprover
 from brain.email_sender import EmailSender
@@ -29,6 +30,7 @@ class Agent:
 
         # Initialize components
         self.revenue = RevenueTracker(config)
+        self.learnings = StrategicLearnings(config)
         self.nostr = NostrPoster(config)
         self.blog = BlogImprover(config, self.llm)
         self.email = EmailSender(config)
@@ -125,6 +127,11 @@ class Agent:
 
         # Record this run
         self.revenue.record_run(balance, action_type, str(result))
+
+        # Extract and save any learning from this action
+        if action_type != "monitor":
+            learning = f"Action '{action_type}' resulted in: {result}"
+            self.learnings.add(learning, context=f"balance={balance}")
 
         return {
             "timestamp": datetime.now().isoformat(),

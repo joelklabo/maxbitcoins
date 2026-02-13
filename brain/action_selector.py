@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 from brain.config import Config
 from brain.revenue_tracker import RevenueTracker
+from brain.strategic_learnings import StrategicLearnings
 from brain.nostr_poster import NostrPoster
 from brain.blog_improver import BlogImprover
 from brain.email_sender import EmailSender
@@ -29,6 +30,7 @@ class ActionSelector:
         self.blog = blog
         self.email = email
         self.llm = llm
+        self.learnings = StrategicLearnings(config)
 
     def should_act(self) -> bool:
         """Decide if we should take an action"""
@@ -45,9 +47,12 @@ class ActionSelector:
 
     def select_action(self) -> dict:
         """Select the best action to take"""
+        logger.info(f"Oracle enabled: {self.config.use_oracle}")
 
         # If oracle is enabled, ask it for advice
         if self.config.use_oracle:
+            history = self.revenue.load_history()
+            recent_learnings = self.learnings.get_recent(10)
             oracle_suggestion = self.llm.ask_oracle(
                 {
                     "balance": self.revenue.get_balance(),
@@ -56,7 +61,9 @@ class ActionSelector:
                     "failed_count": self.nostr.get_failed_count()
                     + self.blog.get_failed_count()
                     + self.email.get_failed_count(),
-                }
+                },
+                history=history,
+                learnings=recent_learnings,
             )
 
             if oracle_suggestion:
@@ -74,6 +81,11 @@ class ActionSelector:
                             "execute": lambda: self._do_email(lead),
                             "lead": lead,
                         }
+                elif oracle_suggestion == "browser_discover":
+                    return {
+                        "action": "browser_discover",
+                        "execute": self._do_browser_discover,
+                    }
 
         # Default priority order if no oracle or oracle didn't match:
         # 1. Nostr (3/day, 2 fails)
@@ -139,3 +151,17 @@ class ActionSelector:
 
         result = self.email.send_email(lead, self.llm)
         return result
+
+    def _do_browser_discover(self) -> dict:
+        """Use browser to discover and act on opportunities"""
+        logger.info("Discovering opportunities via browser...")
+
+        from brain.browser_discovery import BrowserDiscovery
+
+        browser = BrowserDiscovery(self.config)
+        opportunities = browser.discover_all()
+
+        return {
+            "result": "discovered",
+            "opportunities": opportunities,
+        }

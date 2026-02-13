@@ -59,6 +59,10 @@ class MiniMaxProvider(LLMProvider):
                 timeout=120,
             )
 
+            logger.warning(
+                f"MiniMax request response: {resp.status_code} - {resp.text[:200]}"
+            )
+
             if resp.status_code == 200:
                 data = resp.json()
                 return (
@@ -187,11 +191,11 @@ class OllamaProvider(LLMProvider):
 
 
 class OracleProvider(LLMProvider):
-    """Oracle API provider - asks what to do to make money"""
+    """Oracle API provider - asks what to do to make money (uses MiniMax)"""
 
     def __init__(self, config: Config):
-        self.api_key = config.oracle_api_key
-        self.model = "oracle"  # Oracle uses specific model
+        self.api_key = config.oracle_api_key or config.minimax_api_key
+        self.model = config.minimax_model  # Use same high-powered model as MiniMax
         self.base_url = "https://api.minimax.chat/v1"
 
     def generate(self, prompt: str, system: str = None, max_tokens: int = 2048) -> str:
@@ -221,6 +225,10 @@ class OracleProvider(LLMProvider):
                 headers=headers,
                 json=payload,
                 timeout=60,
+            )
+
+            logger.warning(
+                f"Oracle API response: {resp.status_code} - {resp.text[:200]}"
             )
 
             if resp.status_code == 200:
@@ -307,30 +315,127 @@ class LLM:
         """Get current provider name"""
         return self.current_name or "none"
 
-    def ask_oracle(self, context: str) -> str:
-        """Ask the oracle for advice on what to do"""
-        if not self.config.use_oracle or not self.config.oracle_api_key:
+    def ask_oracle(
+        self, context: dict, history: list = None, learnings: list = None
+    ) -> str:
+        """Ask the oracle for strategic advice using browser automation"""
+        if not self.config.use_oracle:
             return ""
 
-        oracle = OracleProvider(self.config)
-        if not oracle.is_available():
-            logger.warning("Oracle not available")
+        # Try browser-based oracle first
+        browser_oracle = BrowserOracle(self.config, self)
+
+        if browser_oracle.is_available():
+            logger.info("Using Browser Oracle for strategic advice...")
+            history = history or []
+            return browser_oracle.ask(context, history)
+
+        # Fallback: no oracle available
+        logger.warning("Browser Oracle not available")
+        return ""
+
+
+class BrowserOracle:
+    """Oracle that uses browser automation to discover opportunities"""
+
+    def __init__(self, config: Config, llm):
+        self.config = config
+        self.llm = llm
+        self.browser = None
+        self._init_browser()
+
+    def _init_browser(self):
+        """Initialize browser discovery"""
+        try:
+            from brain.browser_discovery import BrowserDiscovery
+
+            self.browser = BrowserDiscovery(self.config)
+        except Exception as e:
+            logger.warning(f"Browser not available: {e}")
+
+    def is_available(self) -> bool:
+        """Check if browser oracle is available"""
+        return self.browser is not None and self.browser.is_available()
+
+    def ask(self, context: dict, history: list = None) -> str:
+        """Ask for strategic advice using browser discovery"""
+        if not self.is_available():
+            logger.warning("Browser Oracle not available")
             return ""
 
-        prompt = f"""You are a Bitcoin earning strategist. The agent has:
+        logger.info("Using browser to discover opportunities...")
+
+        # Discover opportunities via browser
+        opportunities = self.browser.discover_all()
+        logger.info(f"Discovered {opportunities.get('total_found', 0)} opportunities")
+
+        # Try to use LLM to analyze
+        try:
+            prompt = self._build_prompt(context, history, opportunities)
+            response = self.llm.generate(prompt, max_tokens=500)
+        except Exception as e:
+            logger.error(f"LLM analysis failed: {e}")
+            response = ""
+
+        if response:
+            logger.info(f"Browser Oracle response: {response[:200]}...")
+            return self._extract_recommendation(response)
+
+        # Fallback: if LLM fails, return browser_discover to explore manually
+        logger.warning("No LLM available, defaulting to browser_discover")
+        return "browser_discover"
+
+    def _build_prompt(self, context: dict, history: list, opportunities: dict) -> str:
+        """Build prompt with discovered opportunities"""
+        import json
+
+        history_str = json.dumps(history[-10:] if history else [], indent=2)
+
+        return f"""You are MaxBitcoins Strategic Advisor. You have DISCOVERED real-time opportunities via browser:
+
+## Current State
 - Balance: {context.get("balance", 0)} sats
-- Daily revenue: {context.get("daily_revenue", 0)} sats
-- Available actions: nostr_post, blog_improve, email_outreach
-- Last action: {context.get("last_action", "none")}
-- Failed attempts: {context.get("failed_count", 0)}
+- Today's revenue: {context.get("daily_revenue", 0)} sats
 
-What single action should the agent take NOW to maximize Bitcoin earnings? 
-Respond with ONLY the action name (e.g., "nostr_post" or "blog_improve" or "email_outreach" or "monitor").
-No explanation, just the action."""
+## Recent History
+{history_str}
 
-        result = oracle.generate(prompt, max_tokens=50)
+## Discovered Opportunities
+{json.dumps(opportunities, indent=2)}
 
-        if result:
-            logger.info(f"Oracle suggested: {result}")
+## Available Actions
+- `nostr_post` - Post to Nostr
+- `blog_improve` - Improve blog 
+- `email_outreach` - Send outreach emails
+- `browser_discover` - Use browser to find/execute opportunities
+- `monitor` - Don't act, just watch
 
-        return result.strip().lower() if result else ""
+## Your Task
+Analyze the discovered opportunities and recommend ONE action that has the highest potential for earning Bitcoin right now.
+
+Consider:
+1. Are there any bounties/jobs that match skills?
+2. What's the ROI of each potential action?
+3. Is this the right time to act?
+
+Respond with ONLY a single word: nostr_post, blog_improve, email_outreach, browser_discover, or monitor"""
+
+    def _extract_recommendation(self, response: str) -> str:
+        """Extract single-word recommendation from response"""
+        valid = [
+            "nostr_post",
+            "blog_improve",
+            "email_outreach",
+            "browser_discover",
+            "monitor",
+        ]
+
+        for word in response.lower().split():
+            for v in valid:
+                if v in word:
+                    return v
+
+        return ""
+
+
+# Keep for backwards compatibility if needed
