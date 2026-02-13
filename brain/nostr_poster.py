@@ -169,19 +169,31 @@ class NostrPoster:
         created_at = int(time.time())
         pubkey_hex = self._pubkey.hex() if self._pubkey else ""
 
-        # Build event data for ID hash - order is: [0, pubkey, created_at, kind, tags, content]
-        event_for_hash = [
-            0,  # placeholder (will be replaced with hash)
-            pubkey_hex,
-            created_at,
-            1,  # kind 1 - text note
-            [],  # tags
-            content,
-        ]
+        # Create event as dict with keys in specific order
+        event = {
+            "id": "",  # placeholder
+            "pubkey": pubkey_hex,
+            "created_at": created_at,
+            "kind": 1,
+            "tags": [],
+            "content": content,
+        }
 
-        # Calculate ID - serialize WITHOUT the id placeholder, just with 0
+        # Compute ID hash - serialize WITHOUT id field, in this order:
+        # [0, pubkey, created_at, kind, tags, content]
+        event_for_hash = [
+            0,
+            event["pubkey"],
+            event["created_at"],
+            event["kind"],
+            event["tags"],
+            event["content"],
+        ]
         event_json = json.dumps(event_for_hash, separators=(",", ":"))
         id_hash = hashlib.sha256(event_json.encode()).hexdigest()
+
+        # Update with computed ID
+        event["id"] = id_hash
 
         # Sign
         sig_hex = ""
@@ -191,18 +203,9 @@ class NostrPoster:
             )
             sig_hex = sig.hex()
 
-        # Create event as array (for both hashing and sending)
-        event_arr = [
-            id_hash,
-            pubkey_hex,
-            created_at,
-            1,
-            [],
-            content,
-            sig_hex,
-        ]
+        event["sig"] = sig_hex
 
-        return {"id": id_hash, "event": event_arr}
+        return {"id": id_hash, "event": event}
 
     def post_note(self, content: str) -> bool:
         """Post a note to Nostr"""
