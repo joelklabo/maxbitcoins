@@ -169,31 +169,17 @@ class NostrPoster:
         created_at = int(time.time())
         pubkey_hex = self._pubkey.hex() if self._pubkey else ""
 
-        # Create event as dict with keys in specific order
-        event = {
-            "id": "",  # placeholder
-            "pubkey": pubkey_hex,
-            "created_at": created_at,
-            "kind": 1,
-            "tags": [],
-            "content": content,
-        }
-
-        # Compute ID hash - serialize WITHOUT id field, in this order:
-        # [0, pubkey, created_at, kind, tags, content]
+        # Compute ID hash from array format [0, pubkey, created_at, kind, tags, content]
         event_for_hash = [
             0,
-            event["pubkey"],
-            event["created_at"],
-            event["kind"],
-            event["tags"],
-            event["content"],
+            pubkey_hex,
+            created_at,
+            1,
+            [],
+            content,
         ]
         event_json = json.dumps(event_for_hash, separators=(",", ":"))
         id_hash = hashlib.sha256(event_json.encode()).hexdigest()
-
-        # Update with computed ID
-        event["id"] = id_hash
 
         # Sign
         sig_hex = ""
@@ -203,7 +189,16 @@ class NostrPoster:
             )
             sig_hex = sig.hex()
 
-        event["sig"] = sig_hex
+        # Create event as dict with EXACT key order as nak: kind, id, pubkey, created_at, tags, content, sig
+        event = [
+            1,  # kind
+            id_hash,  # id
+            pubkey_hex,  # pubkey
+            created_at,  # created_at
+            [],  # tags
+            content,  # content
+            sig_hex,  # sig
+        ]
 
         return {"id": id_hash, "event": event}
 
