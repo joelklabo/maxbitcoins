@@ -23,12 +23,14 @@ class LLMProvider:
 
 
 class MiniMaxProvider(LLMProvider):
-    """MiniMax API provider"""
+    """MiniMax API provider - uses anthropic-compatible endpoint"""
 
     def __init__(self, config: Config):
         self.api_key = config.minimax_api_key
         self.model = config.minimax_model
-        self.base_url = "https://api.minimax.chat/v1"
+        self.base_url = (
+            "https://api.minimax.io/anthropic"  # Anthropic-compatible endpoint
+        )
 
     def generate(self, prompt: str, system: str = None, max_tokens: int = 2048) -> str:
         if not self.api_key:
@@ -40,10 +42,14 @@ class MiniMaxProvider(LLMProvider):
                 "Content-Type": "application/json",
             }
 
+            # Anthropic-compatible format
             messages = []
             if system:
-                messages.append({"role": "system", "content": system})
-            messages.append({"role": "user", "content": prompt})
+                messages.append(
+                    {"role": "user", "content": f"System: {system}\n\n{prompt}"}
+                )
+            else:
+                messages.append({"role": "user", "content": prompt})
 
             payload = {
                 "model": self.model,
@@ -53,7 +59,7 @@ class MiniMaxProvider(LLMProvider):
             }
 
             resp = requests.post(
-                f"{self.base_url}/text/chatcompletion_v2",
+                f"{self.base_url}/v1/messages",
                 headers=headers,
                 json=payload,
                 timeout=120,
@@ -65,12 +71,12 @@ class MiniMaxProvider(LLMProvider):
 
             if resp.status_code == 200:
                 data = resp.json()
-                return (
-                    data.get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content", "")
-                    .strip()
-                )
+                # Anthropic format: content is an array with different types (text, thinking)
+                content = data.get("content", [])
+                for item in content:
+                    if item.get("type") == "text":
+                        return item.get("text", "").strip()
+                return ""
 
             logger.warning(f"MiniMax request failed: {resp.status_code} - {resp.text}")
             return ""
@@ -195,8 +201,8 @@ class OracleProvider(LLMProvider):
 
     def __init__(self, config: Config):
         self.api_key = config.oracle_api_key or config.minimax_api_key
-        self.model = config.minimax_model  # Use same high-powered model as MiniMax
-        self.base_url = "https://api.minimax.chat/v1"
+        self.model = config.minimax_model
+        self.base_url = "https://api.minimax.io/anthropic"
 
     def generate(self, prompt: str, system: str = None, max_tokens: int = 2048) -> str:
         if not self.api_key:
@@ -208,10 +214,14 @@ class OracleProvider(LLMProvider):
                 "Content-Type": "application/json",
             }
 
+            # Anthropic-compatible format
             messages = []
             if system:
-                messages.append({"role": "system", "content": system})
-            messages.append({"role": "user", "content": prompt})
+                messages.append(
+                    {"role": "user", "content": f"System: {system}\n\n{prompt}"}
+                )
+            else:
+                messages.append({"role": "user", "content": prompt})
 
             payload = {
                 "model": self.model,
@@ -221,7 +231,7 @@ class OracleProvider(LLMProvider):
             }
 
             resp = requests.post(
-                f"{self.base_url}/text/chatcompletion_v2",
+                f"{self.base_url}/v1/messages",
                 headers=headers,
                 json=payload,
                 timeout=60,
@@ -233,12 +243,11 @@ class OracleProvider(LLMProvider):
 
             if resp.status_code == 200:
                 data = resp.json()
-                return (
-                    data.get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content", "")
-                    .strip()
-                )
+                content = data.get("content", [])
+                for item in content:
+                    if item.get("type") == "text":
+                        return item.get("text", "").strip()
+                return ""
 
             logger.warning(f"Oracle request failed: {resp.status_code}")
             return ""
