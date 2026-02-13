@@ -216,6 +216,10 @@ class NostrPoster:
         try:
             event_data = self._create_event(content)
 
+            # Debug: log what's being sent
+            msg = json.dumps(["EVENT", event_data["event"]])
+            logger.debug(f"Sending Nostr event: {msg[:200]}...")
+
             for relay in RELAYS:
                 try:
                     ws = websocket.create_connection(relay, timeout=10)
@@ -277,7 +281,7 @@ Keep it under 280 characters. Be informative and friendly. Topic: {topic}"""
 
         content = f"{emoji} MaxBitcoins: {balance:,} sats | {action} | {result[:60]}"
 
-        # Try sending via WebSocket
+        # Try sending via websocket
         try:
             event_data = self._create_event(content)
 
