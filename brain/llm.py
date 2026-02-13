@@ -475,44 +475,51 @@ IMPORTANT: Write as much detail as possible - this will be saved and learned fro
             ]
 
             # Start a dedicated Chrome for Oracle on port 9477
-            oracle_port = "9477"
+            # Start a dedicated Chrome for Oracle on a random high port to avoid conflicts
+            oracle_port = "29347"  # Unique port for maxbitcoins
             chrome_proc = None
+            result = None
             
             try:
                 logger.info(f"Starting Chrome on port {oracle_port}...")
 
-            # Start Chrome in background
-            chrome_proc = subprocess.Popen(
-                [
-                    "chromium",
-                    f"--remote-debugging-port={oracle_port}",
-                    "--headless",
-                    "--no-sandbox",
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            time.sleep(3)
+                # Start Chrome in background
+                chrome_proc = subprocess.Popen(
+                    [
+                        "chromium",
+                        f"--remote-debugging-port={oracle_port}",
+                        "--headless",
+                        "--no-sandbox",
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                time.sleep(3)
 
-            # Tell Oracle to use this Chrome
-            cmd.extend(["--browser-port", oracle_port])
+                # Tell Oracle to use this Chrome
+                cmd.extend(["--browser-port", oracle_port])
 
-            # Timeout: 1 hour (oracle can take that long)
-            logger.info(f"Calling oracle with full codebase...")
+                # Clean env for Oracle (clear remote host)
+                clean_env = os.environ.copy()
+                clean_env["ORACLE_REMOTE_HOST"] = ""
+                clean_env["ORACLE_REMOTE_TOKEN"] = ""
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=3600,
-                cwd="/home/klabo/maxbitcoins",
-                env=clean_env,
-            )
+                # Timeout: 1 hour (oracle can take that long)
+                logger.info(f"Calling oracle with full codebase...")
 
-            logger.info(f"Oracle CLI completed in {time.time() - oracle_start:.1f}s")
-            logger.info(
-                f"Oracle stdout: {result.stdout[:2000] if result.stdout else 'empty'}"
-            )
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=3600,
+                    cwd="/home/klabo/maxbitcoins",
+                    env=clean_env,
+                )
+
+                logger.info(f"Oracle CLI completed in {time.time() - oracle_start:.1f}s")
+                logger.info(
+                    f"Oracle stdout: {result.stdout[:2000] if result.stdout else 'empty'}"
+                )
 
             # Check for errors
             if "ECONNREFUSED" in result.stdout or "ECONNREFUSED" in result.stderr:
