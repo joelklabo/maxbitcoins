@@ -86,7 +86,10 @@ class NostrPoster:
             return False
 
         try:
-            keys = Keys.from_nsec(nsec)
+            from nostr_sdk import Client, Keys, SecretKey, NostrSigner
+
+            sk = SecretKey.parse(nsec)
+            keys = Keys(sk)
             signer = NostrSigner.keys(keys)
 
             client = Client.builder().signer(signer).build()
