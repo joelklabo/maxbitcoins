@@ -147,4 +147,11 @@ class Agent:
         )
         logger.info("=" * 50)
 
+        # Send Nostr notification
+        self.nostr.notify(
+            result["balance"],
+            result["action_taken"],
+            str(result.get("result", "")),
+        )
+
         return result

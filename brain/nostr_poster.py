@@ -12,12 +12,20 @@ from datetime import datetime
 from pathlib import Path
 import secp256k1
 import websocket
+import bech32
 from brain.config import Config
 
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path("/data")
 RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net"]
+
+
+def _nsec_to_hex(nsec: str) -> str:
+    """Convert nsec1 bech32 to hex"""
+    hrp, data = bech32.decode("nsec", nsec)
+    conv = bech32.convertbits(data, 5, 8, False)
+    return bytes(conv).hex()
 
 
 class NostrPoster:
@@ -38,15 +46,12 @@ class NostrPoster:
             try:
                 key = self.config.nostr_private_key
                 if key.startswith("nsec1"):
-                    logger.warning(
-                        "nsec1 format not supported - need hex format. Posting disabled."
-                    )
-                    self.enabled = False
-                else:
-                    priv_bytes = bytes.fromhex(key)
-                    self._privkey = secp256k1.PrivateKey(priv_bytes)
-                    self._pubkey = self._privkey.pubkey.serialize()[1:]
-                    logger.info("Nostr posting ENABLED")
+                    key = _nsec_to_hex(key)
+                    logger.info("Converted nsec1 to hex")
+                priv_bytes = bytes.fromhex(key)
+                self._privkey = secp256k1.PrivateKey(priv_bytes)
+                self._pubkey = self._privkey.pubkey.serialize()[1:]
+                logger.info("Nostr posting ENABLED")
             except Exception as e:
                 logger.error(f"Failed to derive pubkey: {e}")
                 self.enabled = False
@@ -177,3 +182,36 @@ Keep it under 280 characters. Be informative and friendly. Topic: {topic}"""
             content = content[:277] + "..."
 
         return content
+
+    def notify(self, balance: int, action: str, result: str) -> bool:
+        """Send run notification to Nostr (always works if key configured)"""
+        if not self._pubkey or not self._privkey:
+            logger.warning("No Nostr key configured for notifications")
+            return False
+
+        # Format short message
+        emoji = "🟢"
+        if "failed" in result.lower():
+            emoji = "🔴"
+        elif "earning" in result.lower() or "monitor" in result.lower():
+            emoji = "⚡"
+
+        content = f"{emoji} MaxBitcoins: {balance:,} sats | {action} | {result[:60]}"
+
+        try:
+            event_data = self._create_event(content)
+
+            for relay in RELAYS:
+                try:
+                    ws = websocket.create_connection(relay, timeout=10)
+                    ws.send(json.dumps(["EVENT", event_data["event"]]))
+                    ws.close()
+                except Exception as e:
+                    logger.warning(f"Failed to notify via {relay}: {e}")
+
+            logger.info(f"Nostr notification sent: {content[:50]}...")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error sending Nostr notification: {e}")
+            return False
