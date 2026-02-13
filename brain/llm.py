@@ -186,6 +186,63 @@ class OllamaProvider(LLMProvider):
             return []
 
 
+class OracleProvider(LLMProvider):
+    """Oracle API provider - asks what to do to make money"""
+
+    def __init__(self, config: Config):
+        self.api_key = config.oracle_api_key
+        self.model = "oracle"  # Oracle uses specific model
+        self.base_url = "https://api.minimax.chat/v1"
+
+    def generate(self, prompt: str, system: str = None, max_tokens: int = 2048) -> str:
+        if not self.api_key:
+            return ""
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.9,  # Higher temp for creative suggestions
+            }
+
+            resp = requests.post(
+                f"{self.base_url}/text/chatcompletion_v2",
+                headers=headers,
+                json=payload,
+                timeout=60,
+            )
+
+            if resp.status_code == 200:
+                data = resp.json()
+                return (
+                    data.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                    .strip()
+                )
+
+            logger.warning(f"Oracle request failed: {resp.status_code}")
+            return ""
+
+        except Exception as e:
+            logger.error(f"Error calling Oracle: {e}")
+            return ""
+
+    def is_available(self) -> bool:
+        return bool(self.api_key)
+
+
 class LLM:
     """LLM with automatic provider fallback"""
 
@@ -249,3 +306,31 @@ class LLM:
     def provider_name(self) -> str:
         """Get current provider name"""
         return self.current_name or "none"
+
+    def ask_oracle(self, context: str) -> str:
+        """Ask the oracle for advice on what to do"""
+        if not self.config.use_oracle or not self.config.oracle_api_key:
+            return ""
+
+        oracle = OracleProvider(self.config)
+        if not oracle.is_available():
+            logger.warning("Oracle not available")
+            return ""
+
+        prompt = f"""You are a Bitcoin earning strategist. The agent has:
+- Balance: {context.get("balance", 0)} sats
+- Daily revenue: {context.get("daily_revenue", 0)} sats
+- Available actions: nostr_post, blog_improve, email_outreach
+- Last action: {context.get("last_action", "none")}
+- Failed attempts: {context.get("failed_count", 0)}
+
+What single action should the agent take NOW to maximize Bitcoin earnings? 
+Respond with ONLY the action name (e.g., "nostr_post" or "blog_improve" or "email_outreach" or "monitor").
+No explanation, just the action."""
+
+        result = oracle.generate(prompt, max_tokens=50)
+
+        if result:
+            logger.info(f"Oracle suggested: {result}")
+
+        return result.strip().lower() if result else ""
