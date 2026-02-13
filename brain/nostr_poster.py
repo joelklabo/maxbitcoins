@@ -7,6 +7,10 @@ import requests
 from datetime import datetime
 from pathlib import Path
 import json
+import hashlib
+import secp256k1
+import bech32
+import time
 from brain.config import Config
 
 logger = logging.getLogger(__name__)
@@ -15,12 +19,34 @@ DATA_DIR = Path("/data")
 RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net"]
 
 
+def decode_nsec(nsec: str) -> bytes:
+    """Decode nsec (bech32) to hex bytes"""
+    # Remove nsec1 prefix
+    if nsec.startswith("nsec1"):
+        nsec = nsec[5:]
+    # Decode bech32
+    _, data = bech32.bech32_decode(nsec)
+    if data is None:
+        raise ValueError("Invalid nsec")
+    return bytes(bech32.convertbits(data, 5, 8, False))
+
+
 class NostrPoster:
     def __init__(self, config: Config):
         self.config = config
         self.state_file = DATA_DIR / "nostr_state.json"
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         self._load_state()
+
+        # Derive public key from private
+        self._pubkey = None
+        if self.config.nostr_private_key:
+            try:
+                priv_bytes = decode_nsec(self.config.nostr_private_key)
+                self._privkey = secp256k1.PrivateKey(priv_bytes)
+                self._pubkey = self._privkey.pubkey.serialize()[1:]  # 32 bytes
+            except Exception as e:
+                logger.error(f"Failed to derive pubkey: {e}")
 
     def _load_state(self):
         """Load posting state"""
@@ -63,21 +89,41 @@ class NostrPoster:
             self.state["failed_count"] = self.state.get("failed_count", 0) + 1
         self._save_state()
 
+    def _create_event(self, content: str) -> dict:
+        """Create a Nostr event"""
+        created_at = int(time.time())
+
+        # Build event data
+        event = [
+            0,  # kind 0 - temporary
+            created_at,
+            1,  # kind 1 - text note
+            [],  # tags
+            self._pubkey.hex() if self._pubkey else "",
+            content,
+        ]
+
+        # Calculate ID
+        event_json = json.dumps(event, separators=(",", ":"))
+        id_hash = hashlib.sha256(event_json.encode()).hexdigest()
+
+        event[0] = id_hash
+
+        # Sign
+        if self._privkey:
+            sig = self._privkey.schnorr_sign(bytes.fromhex(id_hash), raw=True)
+            event.append(sig.hex())
+
+        return {"id": id_hash, "event": event}
+
     def post_note(self, content: str) -> bool:
         """Post a note to Nostr"""
-        if not self.config.nostr_private_key:
+        if not self.config.nostr_private_key or not self._pubkey:
             logger.warning("No Nostr private key configured")
             return False
 
         try:
-            # Create simple kind 1 note
-            from nostr.key import PrivateKey
-            from nostr.event import Event
-
-            private_key = PrivateKey.from_hex(self.config.nostr_private_key)
-
-            event = Event(content=content, kind=1, tags=[])
-            private_key.sign_event(event)
+            event_data = self._create_event(content)
 
             # Publish to relays
             import websocket
@@ -85,8 +131,9 @@ class NostrPoster:
             for relay in RELAYS:
                 try:
                     ws = websocket.create_connection(relay, timeout=10)
-                    ws.send(json.dumps(["EVENT", event.to_json()]))
+                    ws.send(json.dumps(["EVENT", event_data["event"]]))
                     ws.close()
+                    logger.info(f"Posted to {relay}")
                 except Exception as e:
                     logger.warning(f"Failed to post to {relay}: {e}")
 
