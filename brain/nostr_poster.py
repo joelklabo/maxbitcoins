@@ -92,7 +92,7 @@ class NostrPoster:
             keys = Keys(sk)
             signer = NostrSigner.keys(keys)
 
-            client = Client.builder().signer(signer).build()
+            client = Client(signer)
 
             for relay in RELAYS:
                 try:
@@ -100,7 +100,13 @@ class NostrPoster:
                 except Exception as e:
                     logger.warning(f"Failed to add relay {relay}: {e}")
 
-            client.publish_text_note(content)
+            client.connect()
+
+            from nostr_sdk import EventBuilder, Note
+
+            builder = EventBuilder.text_note(content)
+            client.send_event_builder(builder)
+
             client.shutdown()
 
             logger.info(f"Posted to Nostr: {content[:50]}...")
