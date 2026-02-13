@@ -406,12 +406,6 @@ class BrowserOracle:
             f"Discovered {opportunities.get('total_found', 0)} opportunities in {time.time() - start:.1f}s"
         )
 
-        # Discover opportunities via browser
-        opportunities = self.browser.discover_all()
-        logger.info(
-            f"Discovered {opportunities.get('total_found', 0)} opportunities in {time.time() - start:.1f}s"
-        )
-
         # First, use MiniMax to generate a detailed strategic prompt for Oracle
         prompt_gen_start = time.time()
         prompt_gen_system = """You are a prompt engineering expert. Your job is to create extremely detailed, useful prompts for a strategic AI assistant (GPT-5.2 Pro) that will analyze opportunities and make recommendations for an autonomous Bitcoin-earning agent."""
@@ -427,20 +421,22 @@ History (last 10 runs):
 Opportunities found:
 {json.dumps(opportunities, indent=2)}
 
-Available actions: nostr_post, blog_improve, email_outreach, browser_discover, monitor
-
 You have access to the full codebase (brain/, data/, main.py, Dockerfile, etc.) attached as files.
 
 Write a detailed strategic analysis (2-3 paragraphs) covering:
 1. Current situation analysis (balance, trends, patterns from history)
 2. What opportunities exist right now in the Lightning/Bitcoin ecosystem
-3. ROI analysis for each available action
+3. ROI analysis for each potential action
 4. Specific recommendations for how this agent can earn more Bitcoin
-5. Any new strategies or ideas that haven't been tried
+5. Any new strategies, code changes, or ideas that haven't been tried
 
-Then end with your final recommendation on what single action to take right now (one of: nostr_post, blog_improve, email_outreach, browser_discover, monitor).
+Then end with your final recommendation. This can be:
+- A specific action (e.g., "post to Nostr about X topic", "apply for Y bounty")
+- A code change to make to the tool itself
+- A new strategy to experiment with
+- Or "monitor" if there's nothing good to do right now
 
-IMPORTANT: Write as much detail as possible - this will be saved and learned from."""
+IMPORTANT: Be creative and think long-term. Write as much detail as possible - this will be saved and learned from."""
 
         # Build strategic prompt for Oracle directly
         oracle_prompt = prompt_gen_user
@@ -529,41 +525,41 @@ IMPORTANT: Write as much detail as possible - this will be saved and learned fro
                     raise Exception("Oracle browser not available")
 
                 # Extract full response and save to learnings
-            response = result.stdout
-            if response:
-                # Log the full strategic analysis
-                logger.info(
-                    f"=== ORACLE STRATEGIC ANALYSIS ===\n{response}\n=== END ORACLE ANALYSIS ==="
-                )
-
-                # Also save to file for learning
-                try:
-                    from pathlib import Path
-
-                    oracle_file = Path(
-                        "/home/klabo/maxbitcoins/data/oracle_analysis.md"
+                response = result.stdout
+                if response:
+                    # Log the full strategic analysis
+                    logger.info(
+                        f"=== ORACLE STRATEGIC ANALYSIS ===\n{response}\n=== END ORACLE ANALYSIS ==="
                     )
-                    oracle_file.parent.mkdir(parents=True, exist_ok=True)
-                    oracle_file.write_text(
-                        f"# Oracle Strategic Analysis\n\n{response}\n"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to save oracle analysis: {e}")
 
-                return self._extract_recommendation(response)
+                    # Also save to file for learning
+                    try:
+                        from pathlib import Path
 
-        except subprocess.TimeoutExpired:
-            logger.error("Oracle timed out after 1 hour")
-        except Exception as e:
-            logger.error(f"Oracle error: {e}")
-        finally:
-            # Cleanup Chrome process
-            try:
-                chrome_proc.terminate()
-                chrome_proc.wait(timeout=5)
-                logger.info("Chrome process terminated")
-            except:
-                pass
+                        oracle_file = Path(
+                            "/home/klabo/maxbitcoins/data/oracle_analysis.md"
+                        )
+                        oracle_file.parent.mkdir(parents=True, exist_ok=True)
+                        oracle_file.write_text(
+                            f"# Oracle Strategic Analysis\n\n{response}\n"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to save oracle analysis: {e}")
+
+                    return self._extract_recommendation(response)
+            except subprocess.TimeoutExpired:
+                logger.error("Oracle timed out after 1 hour")
+            except Exception as e:
+                logger.error(f"Oracle error: {e}")
+            finally:
+                # Cleanup Chrome process
+                if chrome_proc:
+                    try:
+                        chrome_proc.terminate()
+                        chrome_proc.wait(timeout=5)
+                        logger.info("Chrome process terminated")
+                    except:
+                        pass
 
         # Fallback 1: Try MiniMax if oracle failed
         logger.info("Falling back to MiniMax...")
@@ -597,39 +593,37 @@ IMPORTANT: Write as much detail as possible - this will be saved and learned fro
 ## Discovered Opportunities
 {json.dumps(opportunities, indent=2)}
 
-## Available Actions
-- `nostr_post` - Post to Nostr
-- `blog_improve` - Improve blog 
-- `email_outreach` - Send outreach emails
-- `browser_discover` - Use browser to find/execute opportunities
-- `monitor` - Don't act, just watch
-
 ## Your Task
 Analyze the discovered opportunities and recommend ONE action that has the highest potential for earning Bitcoin right now.
+
+Your recommendation can be:
+- A specific action (e.g., "post to Nostr about X topic", "apply for Y bounty")
+- A code change to make to the tool itself  
+- A new strategy to experiment with
+- Or "monitor" if there's nothing good to do right now
 
 Consider:
 1. Are there any bounties/jobs that match skills?
 2. What's the ROI of each potential action?
 3. Is this the right time to act?
 
-Respond with ONLY a single word: nostr_post, blog_improve, email_outreach, browser_discover, or monitor"""
+Be creative and think long-term. Write a detailed recommendation."""
 
     def _extract_recommendation(self, response: str) -> str:
-        """Extract single-word recommendation from response"""
-        valid = [
-            "nostr_post",
-            "blog_improve",
-            "email_outreach",
-            "browser_discover",
-            "monitor",
-        ]
+        """Extract recommendation from oracle response - now allows any response"""
+        if not response:
+            return ""
 
-        for word in response.lower().split():
-            for v in valid:
-                if v in word:
-                    return v
+        # Clean up response - remove any leading markers
+        response = response.strip()
 
-        return ""
+        # If response is very short, return it as-is
+        if len(response) < 50:
+            return response
+
+        # Return full response for flexible action handling
+        # The action_selector will parse this and decide what to do
+        return response
 
 
 # Keep for backwards compatibility if needed
