@@ -384,8 +384,10 @@ class BrowserOracle:
         return self.browser is not None and self.browser.is_available()
 
     def ask(self, context: dict, history: list = None) -> str:
-        """Ask for strategic advice using browser discovery"""
+        """Ask for strategic advice using oracle CLI with browser engine"""
+        import subprocess
         import time
+        import json
 
         start = time.time()
 
@@ -401,23 +403,80 @@ class BrowserOracle:
             f"Discovered {opportunities.get('total_found', 0)} opportunities in {time.time() - start:.1f}s"
         )
 
-        # Try to use LLM to analyze
-        llm_start = time.time()
+        # Build strategic prompt for oracle
+        history_str = json.dumps(history[-10:] if history else [], indent=2)
+
+        oracle_prompt = f"""You are MaxBitcoins Strategic Advisor. An autonomous Bitcoin-earning agent is running on honkbox.
+
+## Current State
+- Balance: {context.get("balance", 0)} sats (~$6.80)
+- Today's revenue: {context.get("daily_revenue", 0)} sats
+
+## Recent History (last 10 runs)
+{history_str}
+
+## Discovered Opportunities
+{json.dumps(opportunities, indent=2)}
+
+## Available Actions
+- nostr_post - Post to Nostr (max 3/day)
+- blog_improve - Improve blog on maximumsats.com (max 2/week)  
+- email_outreach - Send outreach emails (max 5/day)
+- browser_discover - Use browser to find/execute opportunities
+- monitor - Don't act, just watch
+
+## Your Task
+Analyze the current state and recommend ONE action to take RIGHT NOW that has the best chance of earning Bitcoin.
+
+Consider:
+1. What's the balance and trend?
+2. Which actions have worked before?
+3. Are there new opportunities to explore?
+4. What's the ROI of each action?
+
+Respond with ONLY a single word: nostr_post, blog_improve, email_outreach, browser_discover, or monitor"""
+
+        # Use oracle CLI with browser engine
+        oracle_start = time.time()
         try:
-            prompt = self._build_prompt(context, history, opportunities)
-            logger.info(f"Sending to MiniMax (prompt length: {len(prompt)} chars)...")
-            response = self.llm.generate(prompt, max_tokens=500)
-            logger.info(f"MiniMax response in {time.time() - llm_start:.1f}s")
+            # Use oracle with browser engine (uses ChatGPT subscription)
+            result = subprocess.run(
+                [
+                    "npx",
+                    "-y",
+                    "@steipete/oracle",
+                    "--engine",
+                    "browser",
+                    "--model",
+                    "gpt-5.2-pro",
+                    "--prompt",
+                    oracle_prompt,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=600,  # 10 min timeout for oracle
+                cwd="/home/klabo/maxbitcoins",
+            )
+
+            logger.info(f"Oracle CLI completed in {time.time() - oracle_start:.1f}s")
+            logger.info(
+                f"Oracle stdout: {result.stdout[:500] if result.stdout else 'empty'}"
+            )
+            logger.info(
+                f"Oracle stderr: {result.stderr[:500] if result.stderr else 'empty'}"
+            )
+
+            # Extract recommendation from output
+            response = result.stdout
+            if response:
+                return self._extract_recommendation(response)
+
+        except subprocess.TimeoutExpired:
+            logger.error("Oracle timed out after 10 minutes")
         except Exception as e:
-            logger.error(f"LLM analysis failed: {e}")
-            response = ""
+            logger.error(f"Oracle error: {e}")
 
-        if response:
-            logger.info(f"Browser Oracle response: {response[:200]}...")
-            return self._extract_recommendation(response)
-
-        # Fallback: if LLM fails, return browser_discover to explore manually
-        logger.warning("No LLM available, defaulting to browser_discover")
+        # Fallback
         return "browser_discover"
 
     def _build_prompt(self, context: dict, history: list, opportunities: dict) -> str:
