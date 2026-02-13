@@ -186,7 +186,9 @@ class NostrPoster:
 
         # Sign
         if self._privkey:
-            sig = self._privkey.schnorr_sign(bytes.fromhex(id_hash), raw=True)
+            sig = self._privkey.schnorr_sign(
+                bytes.fromhex(id_hash), bip340tag=None, raw=True
+            )
             event.append(sig.hex())
 
         return {"id": id_hash, "event": event}
