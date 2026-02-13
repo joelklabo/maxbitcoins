@@ -403,38 +403,76 @@ class BrowserOracle:
             f"Discovered {opportunities.get('total_found', 0)} opportunities in {time.time() - start:.1f}s"
         )
 
-        # Build strategic prompt for oracle
-        history_str = json.dumps(history[-10:] if history else [], indent=2)
+        # Discover opportunities via browser
+        opportunities = self.browser.discover_all()
+        logger.info(
+            f"Discovered {opportunities.get('total_found', 0)} opportunities in {time.time() - start:.1f}s"
+        )
 
-        oracle_prompt = f"""You are MaxBitcoins Strategic Advisor. An autonomous Bitcoin-earning agent is running on honkbox.
+        # First, use MiniMax to generate a detailed strategic prompt for Oracle
+        prompt_gen_start = time.time()
+        prompt_gen_system = """You are a prompt engineering expert. Your job is to create extremely detailed, useful prompts for a strategic AI assistant (GPT-5.2 Pro) that will analyze opportunities and make recommendations for an autonomous Bitcoin-earning agent."""
 
-## Current State
-- Balance: {context.get("balance", 0)} sats (~$6.80)
+        prompt_gen_user = f"""Create a detailed strategic analysis prompt for an autonomous Bitcoin-earning agent. 
+
+CURRENT STATE:
+- Balance: {context.get("balance", 0)} sats
 - Today's revenue: {context.get("daily_revenue", 0)} sats
+- Last action: {context.get("last_action", "none")}
 
-## Recent History (last 10 runs)
-{history_str}
+HISTORY (last 10 runs):
+{json.dumps(history[-10:] if history else [], indent=2)}
 
-## Discovered Opportunities
+DISCOVERED OPPORTUNITIES (from browser):
 {json.dumps(opportunities, indent=2)}
 
-## Available Actions
-- nostr_post - Post to Nostr (max 3/day)
-- blog_improve - Improve blog on maximumsats.com (max 2/week)  
-- email_outreach - Send outreach emails (max 5/day)
-- browser_discover - Use browser to find/execute opportunities
-- monitor - Don't act, just watch
+AVAILABLE ACTIONS:
+- nostr_post: Post to Nostr (max 3/day)
+- blog_improve: Improve blog on maximumsats.com (max 2/week)
+- email_outreach: Send outreach emails (max 5/day)
+- browser_discover: Use browser to find/execute opportunities
+- monitor: Don't act, just watch
 
-## Your Task
-Analyze the current state and recommend ONE action to take RIGHT NOW that has the best chance of earning Bitcoin.
+Create a prompt that asks the AI to:
+1. Deeply analyze the current situation (balance, trends, patterns)
+2. Research what's happening in the Bitcoin Lightning ecosystem right now
+3. Identify specific opportunities (bounties, jobs, content gaps)
+4. Calculate ROI for each potential action
+5. Make a specific, justified recommendation
 
-Consider:
-1. What's the balance and trend?
-2. Which actions have worked before?
-3. Are there new opportunities to explore?
-4. What's the ROI of each action?
+The prompt should be detailed enough to get real value from a smart AI - include specific questions, context requirements, and desired output format. At the end, ask for a single-word recommendation (one of: nostr_post, blog_improve, email_outreach, browser_discover, monitor).
 
-Respond with ONLY a single word: nostr_post, blog_improve, email_outreach, browser_discover, or monitor"""
+Respond ONLY with the prompt, nothing else."""
+
+        try:
+            generated_prompt = self.llm.generate(
+                prompt_gen_user, system=prompt_gen_system, max_tokens=2000
+            )
+            logger.info(
+                f"Generated detailed prompt in {time.time() - prompt_gen_start:.1f}s ({len(generated_prompt)} chars)"
+            )
+        except Exception as e:
+            logger.error(f"Prompt generation failed: {e}")
+            generated_prompt = None
+
+        # Fallback prompt if MiniMax fails
+        if not generated_prompt:
+            generated_prompt = f"""You are MaxBitcoins Strategic Advisor. The agent has:
+- Balance: {context.get("balance", 0)} sats
+- Today's revenue: {context.get("daily_revenue", 0)} sats
+- Last action: {context.get("last_action", "none")}
+
+History:
+{json.dumps(history[-10:] if history else [], indent=2)}
+
+Opportunities found:
+{json.dumps(opportunities, indent=2)}
+
+Available actions: nostr_post, blog_improve, email_outreach, browser_discover, monitor
+
+Do deep analysis. Consider: balance trends, what's worked before, current Lightning ecosystem opportunities, ROI of each action. Make a specific recommendation with reasoning. End with single word."""
+
+        oracle_prompt = generated_prompt
 
         # Use oracle CLI with browser engine
         oracle_start = time.time()
