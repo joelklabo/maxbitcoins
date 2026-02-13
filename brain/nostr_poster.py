@@ -76,6 +76,9 @@ def _nsec_to_hex(nsec: str) -> "str | None":
         if conv is None:
             logger.warning("Failed to convert bits")
             return None
+        # Remove checksum (last 6 bytes) to get 32-byte private key
+        if len(conv) > 32:
+            conv = conv[:32]
         return bytes(conv).hex()
     except Exception as e:
         logger.warning(f"Error converting nsec: {e}")
