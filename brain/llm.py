@@ -488,6 +488,10 @@ Do deep analysis. Consider: balance trends, what's worked before, current Lightn
                 "gpt-5.2-pro",
                 "--prompt",
                 oracle_prompt,
+                "--file",
+                "brain/",
+                "--file",
+                "data/",
             ]
 
             # Add remote host if configured
@@ -497,6 +501,7 @@ Do deep analysis. Consider: balance trends, what's worked before, current Lightn
                     cmd.extend(["--remote-token", self.config.oracle_remote_token])
 
             # Timeout: 1 hour (oracle can take that long)
+            logger.info(f"Calling oracle with files: brain/, data/")
             result = subprocess.run(
                 capture_output=True,
                 text=True,
