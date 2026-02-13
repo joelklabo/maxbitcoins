@@ -1,6 +1,7 @@
 """
-Main agent loop
+Main agent loop for MaxBitcoins
 """
+
 import logging
 from datetime import datetime
 
@@ -9,6 +10,11 @@ from brain.wallet import Wallet
 from brain.services import ServiceManager
 from brain.llm import LLM
 from brain.discovery import Discovery
+from brain.revenue_tracker import RevenueTracker
+from brain.nostr_poster import NostrPoster
+from brain.blog_improver import BlogImprover
+from brain.email_sender import EmailSender
+from brain.action_selector import ActionSelector
 
 logger = logging.getLogger(__name__)
 
@@ -20,101 +26,125 @@ class Agent:
         self.services = services
         self.llm = LLM(config)
         self.discovery = Discovery(config)
-    
+
+        # Initialize components
+        self.revenue = RevenueTracker(config)
+        self.nostr = NostrPoster(config)
+        self.blog = BlogImprover(config, self.llm)
+        self.email = EmailSender(config)
+        self.action_selector = ActionSelector(
+            config, self.revenue, self.nostr, self.blog, self.email, self.llm
+        )
+
     def check_passive_income(self) -> dict:
         """Step 1: Check passive income from owned services"""
         logger.info("Checking passive income...")
-        
-        revenue = {}
-        
-        # Check service health
-        health = self.services.check_all()
-        revenue["services"] = health
-        
-        # Check wallet balance
+
+        # Get current balance
         balance = self.wallet.get_balance()
-        revenue["balance"] = balance
-        
-        # Check recent payments
-        payments = self.wallet.check_payments()
-        revenue["recent_payments"] = len(payments)
-        
-        logger.info(f"Passive income check: balance={balance} sats, payments={len(payments)}")
-        return revenue
-    
+
+        # Get stats
+        stats = self.revenue.get_stats()
+
+        # Check services
+        health = self.services.check_all()
+
+        result = {
+            "balance": balance,
+            "stats": stats,
+            "services": health,
+        }
+
+        logger.info(
+            f"Passive income check: balance={balance} sats, daily={stats.get('daily_revenue', 0)}"
+        )
+        return result
+
     def maintain_infrastructure(self) -> dict:
         """Step 2: Maintain owned services"""
         logger.info("Maintaining infrastructure...")
-        
-        # Check Ollama availability
+
+        # Check Ollama
         ollama_available = self.llm.is_available()
-        logger.info(f"Ollama available: {ollama_available}")
-        
+
         if ollama_available:
             models = self.llm.list_models()
-            logger.info(f"Available models: {models}")
-        
+            logger.info(f"Ollama available: {models}")
+
         # Check services
         health = self.services.check_all()
-        
+
+        # Check blog tips
+        blog_status = self.blog.check_tips_working()
+
         return {
             "ollama_available": ollama_available,
-            "services_healthy": all(
-                s.get("status") == "up" 
-                for s in health.get("maximumsats", {}).values()
-            ),
+            "services_healthy": health,
+            "blog_tips": blog_status,
         }
-    
-    def grow_revenue(self) -> dict:
-        """Step 3: Grow revenue - pitch services, find opportunities"""
-        logger.info("Growing revenue...")
-        
-        # Check for external opportunities
-        opportunities = self.discovery.find_opportunities()
-        
-        # For now, just log opportunities
-        # In full version, would use LLM to decide actions
-        
-        result = {
-            "opportunities_found": opportunities,
-            "actions_taken": [],
-        }
-        
-        # Example: Use LLM to generate a pitch
-        if self.llm.is_available():
-            prompt = "Write a short pitch for the WoT API (maximumsats.com/wot) for developers who need sybil resistance. Keep it under 100 words."
-            pitch = self.llm.generate(prompt)
-            result["llm_pitch"] = pitch[:200] if pitch else ""
-            logger.info(f"Generated pitch: {result['llm_pitch'][:100]}...")
-        
-        return result
-    
-    def reflect(self, revenue: dict, maintenance: dict, growth: dict) -> dict:
+
+    def take_action(self) -> dict:
+        """Step 3: Take one action if appropriate"""
+        logger.info("Deciding on action...")
+
+        # Check if we should act
+        if not self.action_selector.should_act():
+            logger.info("No action needed - monitoring only")
+            return {"action": "monitor", "result": "earning_well"}
+
+        # Select action
+        action_plan = self.action_selector.select_action()
+
+        action_type = action_plan.get("action", "none")
+        logger.info(f"Selected action: {action_type}")
+
+        # Execute action
+        execute_fn = action_plan.get("execute")
+        if execute_fn:
+            result = execute_fn()
+            logger.info(f"Action result: {result}")
+            return {"action": action_type, "result": result}
+
+        return {"action": "none", "result": "no_execute_fn"}
+
+    def reflect(self, income: dict, maintenance: dict, action: dict) -> dict:
         """Step 4: Reflect and record"""
         logger.info("Reflecting...")
-        
+
+        balance = income.get("balance", 0)
+        action_type = action.get("action", "")
+        result = action.get("result", "")
+
+        # Record this run
+        self.revenue.record_run(balance, action_type, str(result))
+
         return {
             "timestamp": datetime.now().isoformat(),
-            "revenue": revenue,
-            "maintenance": maintenance,
-            "growth": growth,
+            "balance": balance,
+            "action_taken": action_type,
+            "result": result,
         }
-    
+
     def run(self) -> dict:
         """Main agent loop"""
-        logger.info("Starting agent run...")
-        
+        logger.info("=" * 50)
+        logger.info("Starting MaxBitcoins run...")
+
         # Step 1: Check passive income
-        revenue = self.check_passive_income()
-        
+        income = self.check_passive_income()
+
         # Step 2: Maintain infrastructure
         maintenance = self.maintain_infrastructure()
-        
-        # Step 3: Grow revenue
-        growth = self.grow_revenue()
-        
+
+        # Step 3: Take action
+        action = self.take_action()
+
         # Step 4: Reflect
-        result = self.reflect(revenue, maintenance, growth)
-        
-        logger.info("Agent run complete")
+        result = self.reflect(income, maintenance, action)
+
+        logger.info(
+            f"Run complete: balance={result['balance']}, action={result['action_taken']}"
+        )
+        logger.info("=" * 50)
+
         return result
