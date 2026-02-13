@@ -191,18 +191,18 @@ class NostrPoster:
             )
             sig_hex = sig.hex()
 
-        # Create event as dict (relays prefer this)
-        event = {
-            "id": id_hash,
-            "pubkey": pubkey_hex,
-            "created_at": created_at,
-            "kind": 1,
-            "tags": [],
-            "content": content,
-            "sig": sig_hex,
-        }
+        # Create event as array (for both hashing and sending)
+        event_arr = [
+            id_hash,
+            pubkey_hex,
+            created_at,
+            1,
+            [],
+            content,
+            sig_hex,
+        ]
 
-        return {"id": id_hash, "event": event}
+        return {"id": id_hash, "event": event_arr}
 
     def post_note(self, content: str) -> bool:
         """Post a note to Nostr"""
