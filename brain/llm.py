@@ -413,36 +413,35 @@ class BrowserOracle:
         prompt_gen_start = time.time()
         prompt_gen_system = """You are a prompt engineering expert. Your job is to create extremely detailed, useful prompts for a strategic AI assistant (GPT-5.2 Pro) that will analyze opportunities and make recommendations for an autonomous Bitcoin-earning agent."""
 
-        prompt_gen_user = f"""Create a detailed strategic analysis prompt for an autonomous Bitcoin-earning agent. 
+        prompt_gen_user = f"""The agent has access to these files from the codebase:
+- brain/agent.py - Main agent loop
+- brain/action_selector.py - Decides what action to take
+- brain/llm.py - LLM providers (MiniMax, Ollama, Oracle)
+- brain/browser_discovery.py - Browser-based opportunity discovery
+- brain/revenue_tracker.py - Tracks earnings history
+- brain/strategic_learnings.py - Stores learnings
+- brain/blog_improver.py - Blog improvement
+- brain/email_sender.py - Email outreach
 
-CURRENT STATE:
+Current state:
 - Balance: {context.get("balance", 0)} sats
 - Today's revenue: {context.get("daily_revenue", 0)} sats
 - Last action: {context.get("last_action", "none")}
 
-HISTORY (last 10 runs):
+History:
 {json.dumps(history[-10:] if history else [], indent=2)}
 
-DISCOVERED OPPORTUNITIES (from browser):
+Opportunities found:
 {json.dumps(opportunities, indent=2)}
 
-AVAILABLE ACTIONS:
-- nostr_post: Post to Nostr (max 3/day)
-- blog_improve: Improve blog on maximumsats.com (max 2/week)
-- email_outreach: Send outreach emails (max 5/day)
-- browser_discover: Use browser to find/execute opportunities
-- monitor: Don't act, just watch
+Available actions: nostr_post, blog_improve, email_outreach, browser_discover, monitor
 
-Create a prompt that asks the AI to:
-1. Deeply analyze the current situation (balance, trends, patterns)
-2. Research what's happening in the Bitcoin Lightning ecosystem right now
-3. Identify specific opportunities (bounties, jobs, content gaps)
-4. Calculate ROI for each potential action
-5. Make a specific, justified recommendation
+Based on the codebase and current state, what is the BEST question I should ask you (the strategic AI) to help this agent earn more Bitcoin? Think about:
+- What's missing from the current strategy?
+- What would give the agent the biggest ROI?
+- What context is most important?
 
-The prompt should be detailed enough to get real value from a smart AI - include specific questions, context requirements, and desired output format. At the end, ask for a single-word recommendation (one of: nostr_post, blog_improve, email_outreach, browser_discover, monitor).
-
-Respond ONLY with the prompt, nothing else."""
+Respond ONLY with the exact question I should ask you, nothing else. Make it specific and actionable."""
 
         try:
             generated_prompt = self.llm.generate(
@@ -493,6 +492,10 @@ Do deep analysis. Consider: balance trends, what's worked before, current Lightn
                 "brain/",
                 "--file",
                 "data/",
+                "--file",
+                "main.py",
+                "--file",
+                "README.md",
             ]
 
             # Add remote host if configured
@@ -502,7 +505,7 @@ Do deep analysis. Consider: balance trends, what's worked before, current Lightn
                     cmd.extend(["--remote-token", self.config.oracle_remote_token])
 
             # Timeout: 1 hour (oracle can take that long)
-            logger.info(f"Calling oracle with files: brain/, data/")
+            logger.info(f"Calling oracle with files: brain/, data/, main.py, README.md")
             result = subprocess.run(
                 capture_output=True,
                 text=True,
