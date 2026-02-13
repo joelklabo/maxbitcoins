@@ -12,7 +12,6 @@ from datetime import datetime
 from pathlib import Path
 import secp256k1
 import websocket
-import bech32
 from brain.config import Config
 
 logger = logging.getLogger(__name__)
@@ -20,15 +19,60 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path("/data")
 RELAYS = ["wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net"]
 
+CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
+
+def _bech32_decode(s: str) -> tuple[str, list[int]] | None:
+    """Decode a bech32 string"""
+    s = s.lower()
+    pos = s.rfind("1")
+    if pos == -1:
+        return None
+    hrp = s[:pos]
+    data = s[pos + 1 :]
+    for c in data:
+        if c not in CHARSET:
+            return None
+    conv = []
+    for c in data:
+        conv.append(CHARSET.index(c))
+    return hrp, conv
+
+
+def _convert_bits(
+    data: list[int], frombits: int, tobits: int, pad: bool = True
+) -> list[int] | None:
+    """Convert between bit lengths"""
+    acc = 0
+    bits = 0
+    ret = []
+    maxv = (1 << tobits) - 1
+    max_acc = (1 << (frombits + tobits - 1)) - 1
+    for value in data:
+        if value < 0 or (value >> frombits) != 0:
+            return None
+        acc = ((acc << frombits) | value) & max_acc
+        bits += frombits
+        while bits >= tobits:
+            bits -= tobits
+            ret.append((acc >> bits) & maxv)
+    if pad:
+        if bits > 0:
+            ret.append((acc << (tobits - bits)) & maxv)
+    elif bits >= frombits or ((acc << (tobits - bits)) & maxv):
+        return None
+    return ret
+
 
 def _nsec_to_hex(nsec: str) -> "str | None":
     """Convert nsec1 bech32 to hex"""
     try:
-        hrp, data = bech32.decode("nsec", nsec)
-        if data is None:
+        result = _bech32_decode(nsec)
+        if result is None:
             logger.warning(f"Failed to decode nsec: {nsec[:20]}...")
             return None
-        conv = bech32.convertbits(data, 5, 8, False)
+        hrp, data = result
+        conv = _convert_bits(data, 5, 8, False)
         if conv is None:
             logger.warning("Failed to convert bits")
             return None
